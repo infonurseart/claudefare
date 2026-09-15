@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyALoBTuVGRozmrtiWMX9h89TCb30yDmDGg",
@@ -12,77 +13,100 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
 
-// ── Helpers de sincronización ──
-
-// Guardar datos del cuidador en Firestore
-export const saveCarerData = async (userId, data) => {
+// ── Auth helpers ──
+export const registerUser = async (email, password, role, name) => {
   try {
-    await setDoc(doc(db, "carers", userId), {
-      ...data,
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    // Guardar perfil en Firestore
+    await setDoc(doc(db, "users", cred.user.uid), {
+      email, role, name,
+      createdAt: new Date().toISOString()
+    });
+    return { success: true, uid: cred.user.uid };
   } catch(e) {
-    console.log("Error guardando en Firebase:", e.message);
+    const msgs = {
+      "auth/email-already-in-use": "Este correo ya está registrado",
+      "auth/weak-password": "La contraseña debe tener al menos 6 caracteres",
+      "auth/invalid-email": "Correo electrónico no válido"
+    };
+    return { success: false, error: msgs[e.code] || e.message };
   }
 };
 
-// Guardar datos del profesional en Firestore  
-export const saveProData = async (userId, data) => {
+export const loginUser = async (email, password) => {
   try {
-    await setDoc(doc(db, "professionals", userId), {
-      ...data,
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    const snap = await getDoc(doc(db, "users", cred.user.uid));
+    const profile = snap.exists() ? snap.data() : {};
+    return { success: true, uid: cred.user.uid, role: profile.role, name: profile.name };
   } catch(e) {
-    console.log("Error guardando pro en Firebase:", e.message);
+    const msgs = {
+      "auth/user-not-found": "No existe una cuenta con este correo",
+      "auth/wrong-password": "Contraseña incorrecta",
+      "auth/invalid-credential": "Correo o contraseña incorrectos",
+      "auth/too-many-requests": "Demasiados intentos. Espera unos minutos"
+    };
+    return { success: false, error: msgs[e.code] || "Error al iniciar sesión" };
   }
 };
 
-// Cargar datos del cuidador
-export const loadCarerData = async (userId) => {
+export const logoutUser = () => signOut(auth);
+
+export const resetPassword = async (email) => {
   try {
-    const snap = await getDoc(doc(db, "carers", userId));
+    await sendPasswordResetEmail(auth, email);
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: "No se pudo enviar el correo" };
+  }
+};
+
+export const onAuthChange = (callback) => onAuthStateChanged(auth, callback);
+
+// ── Firestore helpers ──
+export const saveUserData = async (uid, data) => {
+  try {
+    await setDoc(doc(db, "userData", uid), {
+      ...data, updatedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch(e) { console.log("Error guardando:", e.message); }
+};
+
+export const loadUserData = async (uid) => {
+  try {
+    const snap = await getDoc(doc(db, "userData", uid));
     return snap.exists() ? snap.data() : null;
-  } catch(e) {
-    console.log("Error cargando de Firebase:", e.message);
-    return null;
-  }
+  } catch(e) { return null; }
 };
 
-// Escuchar cambios en tiempo real de un cuidador (para el profesional)
-export const subscribeToCarerData = (userId, callback) => {
-  return onSnapshot(doc(db, "carers", userId), (snap) => {
+export const subscribeUserData = (uid, callback) => {
+  return onSnapshot(doc(db, "userData", uid), snap => {
     if(snap.exists()) callback(snap.data());
   });
 };
 
-// Vincular profesional con cuidador
-export const linkProCarer = async (inviteCode, proId, proName) => {
+export const registerInviteCode = async (inviteCode, uid) => {
   try {
-    // Buscar cuidador con ese código
-    const snap = await getDoc(doc(db, "inviteCodes", inviteCode));
-    if(!snap.exists()) return { success: false, error: "Código no válido" };
-    const carerId = snap.data().carerId;
-    // Crear vínculo
-    await setDoc(doc(db, "links", `${proId}_${carerId}`), {
-      proId, proName, carerId,
-      inviteCode,
-      linkedAt: new Date().toISOString()
+    await setDoc(doc(db, "inviteCodes", inviteCode), {
+      uid, createdAt: new Date().toISOString()
     });
-    // Marcar cuidador como vinculado
-    await setDoc(doc(db, "carers", carerId), { isLinkedToPro: true, proId, proName }, { merge: true });
-    return { success: true, carerId };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
+  } catch(e) { console.log("Error registrando código:", e.message); }
 };
 
-// Registrar código de invitación del cuidador
-export const registerInviteCode = async (inviteCode, carerId) => {
+export const linkProCarer = async (inviteCode, proUid, proName) => {
   try {
-    await setDoc(doc(db, "inviteCodes", inviteCode), { carerId, createdAt: new Date().toISOString() });
-  } catch(e) {
-    console.log("Error registrando código:", e.message);
-  }
+    const snap = await getDoc(doc(db, "inviteCodes", inviteCode));
+    if(!snap.exists()) return { success: false, error: "Código no válido" };
+    const carerUid = snap.data().uid;
+    await setDoc(doc(db, "links", `${proUid}_${carerUid}`), {
+      proUid, proName, carerUid, inviteCode,
+      linkedAt: new Date().toISOString()
+    });
+    await setDoc(doc(db, "userData", carerUid), {
+      isLinkedToPro: true, proUid, proName
+    }, { merge: true });
+    return { success: true, carerUid };
+  } catch(e) { return { success: false, error: e.message }; }
 };
