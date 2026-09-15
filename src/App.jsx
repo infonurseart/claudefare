@@ -645,21 +645,19 @@ export default function NurseArt(){
         <div style={S.inp}><span>📧</span><input style={S.inpEl} value={loginProForm.email} onChange={e=>setLoginProForm(f=>({...f,email:e.target.value}))}/></div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Contraseña</p>
         <div style={S.inp}><span>🔒</span><input type="password" style={S.inpEl} value={loginProForm.pass} onChange={e=>setLoginProForm(f=>({...f,pass:e.target.value}))}/></div>
-        <p style={{textAlign:"right",marginBottom:16}}><button onClick={()=>{setRecoveryEmail(loginProForm.email||"");setRecoveryStep("form");setShowRecovery(true);}} style={{background:"none",border:"none",fontSize:12,color:D.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></p>
         {registerMode&&(
           <>
-            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tu nombre</p>
-            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Nombre completo" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
             <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Repetir contraseña</p>
             <div style={S.inp}><span>🔒</span><input type="password" style={S.inpEl} placeholder="Repite la contraseña" value={registerForm.pass2} onChange={e=>setRegisterForm(f=>({...f,pass2:e.target.value}))}/></div>
           </>
         )}
+        {!registerMode&&<p style={{textAlign:"right",marginBottom:10}}><button onClick={()=>{setRecoveryEmail(loginProForm.email||"");setRecoveryStep("form");setShowRecovery(true);}} style={{background:"none",border:"none",fontSize:12,color:D.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></p>}
         {authError&&<p style={{fontSize:12,color:D.red,marginBottom:10,textAlign:"center",fontWeight:600}}>⚠ {authError}</p>}
         <button style={{...S.btn(),borderRadius:14,marginBottom:12}} onClick={async()=>{
           setAuthError("");
           if(registerMode){
-            if(registerForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
-            if(registerForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
+            if(loginProForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
+            if(loginProForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
             const r=await registerUser(loginProForm.email,loginProForm.pass,"pro",registerForm.name||"Profesional");
             if(r.success){setRole("pro");go("home");}else{setAuthError(r.error);}
           } else {
@@ -698,21 +696,19 @@ export default function NurseArt(){
         <div style={S.inp}><span>📧</span><input style={S.inpEl} value={loginPacForm.email} onChange={e=>setLoginPacForm(f=>({...f,email:e.target.value}))}/></div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Contraseña</p>
         <div style={S.inp}><span>🔒</span><input type="password" style={S.inpEl} value={loginPacForm.pass} onChange={e=>setLoginPacForm(f=>({...f,pass:e.target.value}))}/></div>
-        <p style={{textAlign:"right",marginBottom:16}}><button onClick={()=>{setRecoveryEmail(loginPacForm.email||"");setRecoveryStep("form");setShowRecovery(true);}} style={{background:"none",border:"none",fontSize:12,color:"#2563EB",fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></p>
         {registerMode&&(
           <>
-            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tu nombre</p>
-            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Nombre completo" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
             <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Repetir contraseña</p>
             <div style={S.inp}><span>🔒</span><input type="password" style={S.inpEl} placeholder="Repite la contraseña" value={registerForm.pass2} onChange={e=>setRegisterForm(f=>({...f,pass2:e.target.value}))}/></div>
           </>
         )}
+        {!registerMode&&<p style={{textAlign:"right",marginBottom:10}}><button onClick={()=>{setRecoveryEmail(loginPacForm.email||"");setRecoveryStep("form");setShowRecovery(true);}} style={{background:"none",border:"none",fontSize:12,color:"#059669",fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></p>}
         {authError&&<p style={{fontSize:12,color:D.red,marginBottom:10,textAlign:"center",fontWeight:600}}>⚠ {authError}</p>}
         <button style={{...S.btn("#2563EB"),borderRadius:14,marginBottom:12}} onClick={async()=>{
           setAuthError("");
           if(registerMode){
-            if(registerForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
-            if(registerForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
+            if(loginPacForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
+            if(loginPacForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
             const r=await registerUser(loginPacForm.email,loginPacForm.pass,"pac",registerForm.name||"Cuidador");
             if(r.success){setRole("pac");await registerInviteCode(inviteCode,r.uid);go("pac-home");}else{setAuthError(r.error);}
           } else {
