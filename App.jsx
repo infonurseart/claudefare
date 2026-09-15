@@ -630,7 +630,17 @@ export default function NurseArt(){
         <h2 style={{fontSize:22,fontWeight:900,color:"#fff",marginBottom:4}}>Acceso Profesional</h2>
         <p style={{fontSize:13,color:"rgba(255,255,255,.7)"}}>NurseArt · Portal Enfermería</p>
       </div>
-      <div style={{background:D.card,borderRadius:"28px 28px 0 0",flex:1,padding:"28px 24px"}}>
+      <div style={{background:D.card,borderRadius:"28px 28px 0 0",flex:1,padding:"28px 24px",overflowY:"auto"}}>
+        <div style={{display:"flex",marginBottom:14,background:D.inp,borderRadius:12,padding:4}}>
+          <button onClick={()=>{setRegisterMode(false);setAuthError("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:9,background:!registerMode?D.blue:"transparent",color:!registerMode?"#fff":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>Iniciar sesión</button>
+          <button onClick={()=>{setRegisterMode(true);setAuthError("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:9,background:registerMode?D.blue:"transparent",color:registerMode?"#fff":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>Crear cuenta</button>
+        </div>
+        {registerMode&&(
+          <>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tu nombre</p>
+            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Nombre completo" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+          </>
+        )}
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Correo electrónico</p>
         <div style={S.inp}><span>📧</span><input style={S.inpEl} value={loginProForm.email} onChange={e=>setLoginProForm(f=>({...f,email:e.target.value}))}/></div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Contraseña</p>
@@ -673,7 +683,17 @@ export default function NurseArt(){
         <h2 style={{fontSize:22,fontWeight:900,color:"#fff",marginBottom:4}}>Acceso Cuidador</h2>
         <p style={{fontSize:13,color:"rgba(255,255,255,.7)"}}>NurseArt · Portal Cuidador</p>
       </div>
-      <div style={{background:D.card,borderRadius:"28px 28px 0 0",flex:1,padding:"28px 24px"}}>
+      <div style={{background:D.card,borderRadius:"28px 28px 0 0",flex:1,padding:"28px 24px",overflowY:"auto"}}>
+        <div style={{display:"flex",marginBottom:14,background:D.inp,borderRadius:12,padding:4}}>
+          <button onClick={()=>{setRegisterMode(false);setAuthError("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:9,background:!registerMode?"#059669":"transparent",color:!registerMode?"#fff":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>Iniciar sesión</button>
+          <button onClick={()=>{setRegisterMode(true);setAuthError("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:9,background:registerMode?"#059669":"transparent",color:registerMode?"#fff":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>Crear cuenta</button>
+        </div>
+        {registerMode&&(
+          <>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tu nombre</p>
+            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Nombre completo" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+          </>
+        )}
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Correo electrónico</p>
         <div style={S.inp}><span>📧</span><input style={S.inpEl} value={loginPacForm.email} onChange={e=>setLoginPacForm(f=>({...f,email:e.target.value}))}/></div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Contraseña</p>
