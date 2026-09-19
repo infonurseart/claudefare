@@ -661,10 +661,10 @@ export default function NurseArt(){
             if(loginProForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
             if(loginProForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
             const r=await registerUser(loginProForm.email,loginProForm.pass,"pro",registerForm.name||"Profesional");
-            if(r.success){setRole("pro");setProProfile(p=>({...p,name:registerForm.name||"Profesional",email:loginProForm.email}));go("home");}else{setAuthError(r.error);}
+            if(r.success){setRole("pro");setProProfile({name:registerForm.name||"Profesional",surname:"",email:loginProForm.email,role:"Enfermera/o",avatar:"👩‍⚕️"});go("home");}else{setAuthError(r.error);}
           } else {
             const r=await loginUser(loginProForm.email,loginProForm.pass);
-            if(r.success){setRole("pro");setProProfile(p=>({...p,name:r.name||p.name,email:r.email||loginProForm.email,avatar:p.avatar||"👩‍⚕️"}));go("home");}else{setAuthError(r.error);}
+            if(r.success){setRole("pro");setProProfile({name:r.name||"Profesional",surname:"",email:r.email||loginProForm.email,role:"Enfermera/o",avatar:"👩‍⚕️"});go("home");}else{setAuthError(r.error);}
           }
         }}>{registerMode?"Crear cuenta →":"Entrar →"}</button>
         <button style={{...S.btnG,borderRadius:14,marginBottom:8}} onClick={()=>{setRegisterMode(m=>!m);setAuthError("");}}>
@@ -712,10 +712,10 @@ export default function NurseArt(){
             if(loginPacForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
             if(loginPacForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
             const r=await registerUser(loginPacForm.email,loginPacForm.pass,"pac",registerForm.name||"Cuidador");
-            if(r.success){setRole("pac");setPacProfile(p=>({...p,name:registerForm.name||"Cuidador",email:loginPacForm.email}));await registerInviteCode(inviteCode,r.uid);go("pac-home");}else{setAuthError(r.error);}
+            if(r.success){setRole("pac");setPacProfile({name:registerForm.name||"Cuidador",surname:"",email:loginPacForm.email,avatar:"👵"});await registerInviteCode(inviteCode,r.uid);go("pac-home");}else{setAuthError(r.error);}
           } else {
             const r=await loginUser(loginPacForm.email,loginPacForm.pass);
-            if(r.success){setRole("pac");setPacProfile(p=>({...p,name:r.name||p.name,email:r.email||loginPacForm.email,avatar:p.avatar||"👵"}));go("pac-home");}else{setAuthError(r.error);}
+            if(r.success){setRole("pac");setPacProfile({name:r.name||"Cuidador",surname:"",email:r.email||loginPacForm.email,avatar:"👵"});go("pac-home");}else{setAuthError(r.error);}
           }
         }}>{registerMode?"Crear cuenta →":"Entrar →"}</button>
         <button style={{...S.btnG,borderRadius:14}} onClick={()=>go("role-select")}>← Volver</button>
