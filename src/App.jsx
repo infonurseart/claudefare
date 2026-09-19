@@ -116,7 +116,7 @@ export default function NurseArt(){
   const [authLoading,setAuthLoading]=useState(true);
   const [authError,setAuthError]=useState("");
   const [registerMode,setRegisterMode]=useState(false);
-  const [registerForm,setRegisterForm]=useState({name:"",email:"",pass:"",pass2:""});
+  const [registerForm,setRegisterForm]=useState({name:"",surname:"",email:"",pass:"",pass2:""});
   const [role,setRole]=useState(null);
   const [dark,setDark]=useState(false);
   const [easyMode,setEasyMode]=useState(false);
@@ -639,8 +639,10 @@ export default function NurseArt(){
         </div>
         {registerMode&&(
           <>
-            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tu nombre</p>
-            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Nombre completo" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Nombre</p>
+            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Tu nombre" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Apellidos</p>
+            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Tus apellidos" value={registerForm.surname} onChange={e=>setRegisterForm(f=>({...f,surname:e.target.value}))}/></div>
           </>
         )}
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Correo electrónico</p>
@@ -660,8 +662,8 @@ export default function NurseArt(){
           if(registerMode){
             if(loginProForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
             if(loginProForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
-            const r=await registerUser(loginProForm.email,loginProForm.pass,"pro",registerForm.name||"Profesional");
-            if(r.success){setRole("pro");setProProfile({name:registerForm.name||"Profesional",surname:"",email:loginProForm.email,role:"Enfermera/o",avatar:"👩‍⚕️"});go("home");}else{setAuthError(r.error);}
+            const r=await registerUser(loginProForm.email,loginProForm.pass,"pro",(registerForm.name||"Profesional")+" "+(registerForm.surname||"").trim());
+            if(r.success){setRole("pro");setProProfile({name:registerForm.name||"Profesional",surname:registerForm.surname||"",email:loginProForm.email,role:"Enfermera/o",avatar:"👩‍⚕️"});go("home");}else{setAuthError(r.error);}
           } else {
             const r=await loginUser(loginProForm.email,loginProForm.pass);
             if(r.success){setRole("pro");setProProfile({name:r.name||"Profesional",surname:"",email:r.email||loginProForm.email,role:"Enfermera/o",avatar:"👩‍⚕️"});go("home");}else{setAuthError(r.error);}
@@ -690,8 +692,10 @@ export default function NurseArt(){
         </div>
         {registerMode&&(
           <>
-            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tu nombre</p>
-            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Nombre completo" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Nombre</p>
+            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Tu nombre" value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Apellidos</p>
+            <div style={S.inp}><span>👤</span><input style={S.inpEl} placeholder="Tus apellidos" value={registerForm.surname} onChange={e=>setRegisterForm(f=>({...f,surname:e.target.value}))}/></div>
           </>
         )}
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Correo electrónico</p>
@@ -711,8 +715,8 @@ export default function NurseArt(){
           if(registerMode){
             if(loginPacForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
             if(loginPacForm.pass.length<6){setAuthError("Mínimo 6 caracteres");return;}
-            const r=await registerUser(loginPacForm.email,loginPacForm.pass,"pac",registerForm.name||"Cuidador");
-            if(r.success){setRole("pac");setPacProfile({name:registerForm.name||"Cuidador",surname:"",email:loginPacForm.email,avatar:"👵"});await registerInviteCode(inviteCode,r.uid);go("pac-home");}else{setAuthError(r.error);}
+            const r=await registerUser(loginPacForm.email,loginPacForm.pass,"pac",(registerForm.name||"Cuidador")+" "+(registerForm.surname||"").trim());
+            if(r.success){setRole("pac");setPacProfile({name:registerForm.name||"Cuidador",surname:registerForm.surname||"",email:loginPacForm.email,avatar:"👵"});await registerInviteCode(inviteCode,r.uid);go("pac-home");}else{setAuthError(r.error);}
           } else {
             const r=await loginUser(loginPacForm.email,loginPacForm.pass);
             if(r.success){setRole("pac");setPacProfile({name:r.name||"Cuidador",surname:"",email:r.email||loginPacForm.email,avatar:"👵"});go("pac-home");}else{setAuthError(r.error);}
