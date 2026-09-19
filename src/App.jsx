@@ -2545,7 +2545,10 @@ export default function NurseArt(){
             <div key={a} onClick={()=>setProProfile(p=>({...p,avatar:a}))} style={{width:44,height:44,borderRadius:11,background:proProfile.avatar===a?D.blueBg:D.inp,border:`2px solid ${proProfile.avatar===a?D.blue:D.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,cursor:"pointer"}}>{a}</div>
           ))}
         </div>
-        <button style={{...S.btn(D.blue),borderRadius:12,marginBottom:8}} onClick={()=>{showToast("✓ Perfil actualizado");setModal(null);}}>Guardar cambios</button>
+        <button style={{...S.btn(D.blue),borderRadius:12,marginBottom:8}} onClick={async()=>{
+          if(authUser) await saveUserData(authUser.uid,{proProfile});
+          showToast("✓ Perfil actualizado");setModal(null);
+        }}>Guardar cambios</button>
         <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cancelar</button>
       </div>
     </div>
@@ -2610,7 +2613,7 @@ export default function NurseArt(){
             <div key={a} onClick={()=>setPacProfile(p=>({...p,avatar:a}))} style={{width:44,height:44,borderRadius:11,background:pacProfile.avatar===a?"#ECFDF5":D.inp,border:`2px solid ${pacProfile.avatar===a?"#059669":D.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,cursor:"pointer"}}>{a}</div>
           ))}
         </div>
-        <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8}} onClick={()=>{showToast("✓ Perfil actualizado");setModal(null);}}>Guardar cambios</button>
+        <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8}} onClick={async()=>{if(authUser) await saveUserData(authUser.uid,{pacProfile});showToast("✓ Perfil actualizado");setModal(null);}}>Guardar cambios</button>
         <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cancelar</button>
       </div>
     </div>
