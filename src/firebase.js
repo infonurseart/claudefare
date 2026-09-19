@@ -38,9 +38,26 @@ export const registerUser = async (email, password, role, name) => {
 export const loginUser = async (email, password) => {
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    const snap = await getDoc(doc(db, "users", cred.user.uid));
-    const profile = snap.exists() ? snap.data() : {};
-    return { success: true, uid: cred.user.uid, role: profile.role, name: profile.name };
+    const uid = cred.user.uid;
+    // Try users collection first, then userData
+    let name = cred.user.displayName || "";
+    let role = "";
+    const userSnap = await getDoc(doc(db, "users", uid));
+    if(userSnap.exists()){
+      const d = userSnap.data();
+      name = d.name || name;
+      role = d.role || "";
+    }
+    // Also check userData for saved profile
+    const dataSnap = await getDoc(doc(db, "userData", uid));
+    if(dataSnap.exists()){
+      const d = dataSnap.data();
+      if(d.proProfile?.name) name = d.proProfile.name;
+      if(d.pacProfile?.name) name = d.pacProfile.name;
+      if(d.role) role = d.role;
+    }
+    console.log("Login OK — uid:", uid, "name:", name, "role:", role);
+    return { success: true, uid, role, name, email };
   } catch(e) {
     const msgs = {
       "auth/user-not-found": "No existe una cuenta con este correo",

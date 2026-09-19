@@ -246,8 +246,8 @@ export default function NurseArt(){
           if(data.recomendaciones) setRecomendaciones(data.recomendaciones);
           if(data.sugerencias) setSugerencias(data.sugerencias);
           if(data.role) setRole(data.role);
-          if(data.proProfile) setProProfile(data.proProfile);
-          if(data.pacProfile) setPacProfile(data.pacProfile);
+          if(data.proProfile?.name) setProProfile(p=>({...p,...data.proProfile}));
+          if(data.pacProfile?.name) setPacProfile(p=>({...p,...data.pacProfile}));
         }
       }
     });
@@ -664,7 +664,7 @@ export default function NurseArt(){
             if(r.success){setRole("pro");setProProfile(p=>({...p,name:registerForm.name||"Profesional",email:loginProForm.email}));go("home");}else{setAuthError(r.error);}
           } else {
             const r=await loginUser(loginProForm.email,loginProForm.pass);
-            if(r.success){setRole("pro");if(r.name)setProProfile(p=>({...p,name:r.name,email:loginProForm.email}));go("home");}else{setAuthError(r.error);}
+            if(r.success){setRole("pro");setProProfile(p=>({...p,name:r.name||p.name,email:r.email||loginProForm.email,avatar:p.avatar||"👩‍⚕️"}));go("home");}else{setAuthError(r.error);}
           }
         }}>{registerMode?"Crear cuenta →":"Entrar →"}</button>
         <button style={{...S.btnG,borderRadius:14,marginBottom:8}} onClick={()=>{setRegisterMode(m=>!m);setAuthError("");}}>
@@ -715,7 +715,7 @@ export default function NurseArt(){
             if(r.success){setRole("pac");setPacProfile(p=>({...p,name:registerForm.name||"Cuidador",email:loginPacForm.email}));await registerInviteCode(inviteCode,r.uid);go("pac-home");}else{setAuthError(r.error);}
           } else {
             const r=await loginUser(loginPacForm.email,loginPacForm.pass);
-            if(r.success){setRole("pac");if(r.name)setPacProfile(p=>({...p,name:r.name,email:loginPacForm.email}));go("pac-home");}else{setAuthError(r.error);}
+            if(r.success){setRole("pac");setPacProfile(p=>({...p,name:r.name||p.name,email:r.email||loginPacForm.email,avatar:p.avatar||"👵"}));go("pac-home");}else{setAuthError(r.error);}
           }
         }}>{registerMode?"Crear cuenta →":"Entrar →"}</button>
         <button style={{...S.btnG,borderRadius:14}} onClick={()=>go("role-select")}>← Volver</button>
