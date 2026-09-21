@@ -169,9 +169,9 @@ export default function NurseArt(){
   // Pac meds
   const STOCK_CRITICO=5;
   const [pacMeds,setPacMeds]=useState([
-    {n:"Enalapril 5mg",principioActivo:"Enalapril maleato",lab:"Normon",forma:"comprimido",efg:true,t:"09:00",taken:true,note:"Con el desayuno",confirmedLate:false,stock:28,stockInicial:30,minStock:5,freq:"Cada 24 horas"},
-    {n:"Paracetamol 1g",principioActivo:"Paracetamol",lab:"Cinfa",forma:"comprimido",efg:true,t:"14:00",taken:false,note:"Si hay dolor",confirmedLate:false,stock:5,stockInicial:20,minStock:5,freq:"Cada 8 horas"},
-    {n:"Omeprazol 20mg",principioActivo:"Omeprazol",lab:"Normon",forma:"capsula",efg:true,t:"08:00",taken:true,note:"En ayunas",confirmedLate:false,stock:14,stockInicial:28,minStock:5,freq:"Cada 24 horas"},
+    {n:"Enalapril 5mg",principioActivo:"Enalapril maleato",lab:"Normon",forma:"comprimido",efg:true,t:"09:00",taken:true,note:"Con el desayuno",confirmedLate:false,stock:28,stockInicial:30,minStock:5,freq:"Cada 24 horas",dosisUnidades:1},
+    {n:"Paracetamol 1g",principioActivo:"Paracetamol",lab:"Cinfa",forma:"comprimido",efg:true,t:"14:00",taken:false,note:"Si hay dolor",confirmedLate:false,stock:5,stockInicial:20,minStock:5,freq:"Cada 8 horas",dosisUnidades:1},
+    {n:"Omeprazol 20mg",principioActivo:"Omeprazol",lab:"Normon",forma:"capsula",efg:true,t:"08:00",taken:true,note:"En ayunas",confirmedLate:false,stock:14,stockInicial:28,minStock:5,freq:"Cada 24 horas",dosisUnidades:1},
   ]);
   const [stockAlert,setStockAlert]=useState(null);
   const [pendingConfirm,setPendingConfirm]=useState(null);
@@ -183,13 +183,28 @@ export default function NurseArt(){
   const [medDuplicateWarning,setMedDuplicateWarning]=useState(null);
   const [showBarcodeScan,setShowBarcodeScan]=useState(false);
   const [barcodeScanning,setBarcodeScanning]=useState(false);
-  const [pacMedForm,setPacMedForm]=useState({t:"09:00",freq:"Cada 24 horas",note:"",stock:"",minStock:"5",horas:[]});
+  const [pacMedForm,setPacMedForm]=useState({t:"09:00",freq:"Cada 24 horas",note:"",stock:"",minStock:"5",horas:[],dosisUnidades:"1"});
   const [pacCart,setPacCart]=useState({});
   const [pacCatFilter,setPacCatFilter]=useState("Todos");
   const [pacNeedFilter,setPacNeedFilter]=useState("Todos");
   const [pacStoreFilter,setPacStoreFilter]=useState("necesidad");
   const [pacVid,setPacVid]=useState(null);
   const [pacVidCat,setPacVidCat]=useState("Todos");
+  const [openCats,setOpenCats]=useState({});
+  const [heridas,setHeridas]=useState([]);
+  const [farmacia,setFarmacia]=useState({nombre:"",direccion:"",telefono:"",codigo:"",estado:"no-vinculada"});
+  const [consentFarmacia,setConsentFarmacia]=useState(null); // {fecha,usuario,farmacia}
+  const [solicitudes,setSolicitudes]=useState([]); // reposición
+  const [umbralDias,setUmbralDias]=useState(7);
+  const [showConsentModal,setShowConsentModal]=useState(false);
+  const [pendingRepoMed,setPendingRepoMed]=useState(null);
+  const [stockCorreccionReal,setStockCorreccionReal]=useState("");
+  const [stockCorreccionMotivo,setStockCorreccionMotivo]=useState("");
+  const [farmaciaFiltro,setFarmaciaFiltro]=useState("todos");
+  const [showHerida,setShowHerida]=useState(null);
+  const [newHerida,setNewHerida]=useState({tipo:"",loc:"",largo:"",ancho:"",prof:"",color:"",exudado:"",bordes:"",pielPeri:"",tratamiento:"",notas:"",fecha:new Date().toLocaleDateString("es-ES")});
+  const [proMsgs,setProMsgs]=useState([]);
+  const [proMsgInput,setProMsgInput]=useState("");
 
   // Pac vitals
   const [vitTab,setVitTab]=useState("constantes");
@@ -248,6 +263,9 @@ export default function NurseArt(){
           if(data.role) setRole(data.role);
           if(data.proProfile?.name) setProProfile(p=>({...p,...data.proProfile}));
           if(data.pacProfile?.name) setPacProfile(p=>({...p,...data.pacProfile}));
+          if(data.solicitudes) setSolicitudes(data.solicitudes);
+          if(data.farmacia) setFarmacia(data.farmacia);
+          if(data.consentFarmacia) setConsentFarmacia(data.consentFarmacia);
         }
       }
     });
@@ -312,7 +330,7 @@ export default function NurseArt(){
     try{localStorage.setItem("nurseart_data",JSON.stringify(data));}catch(e){}
     // Firebase con debounce de 2 segundos
     const t=setTimeout(()=>{
-      if(authUser){saveUserData(authUser.uid,{pacMeds,vitHist,balHist,higHist,sintHist,pacProfile,proProfile,dark,easyMode,isLinkedToPro,recomendaciones,sugerencias,role});}
+      if(authUser){saveUserData(authUser.uid,{pacMeds,vitHist,balHist,higHist,sintHist,pacProfile,proProfile,dark,easyMode,isLinkedToPro,recomendaciones,sugerencias,role,solicitudes,farmacia,consentFarmacia:consentFarmacia||null});}
     },2000);
     return()=>clearTimeout(t);
   },[pacMeds,vitHist,balHist,higHist,sintHist,pacProfile,proProfile,dark,easyMode,isLinkedToPro,recomendaciones,sugerencias,chatMsgs]);
@@ -407,6 +425,77 @@ export default function NurseArt(){
   // Extrae el Código Nacional del EAN-13 farmacéutico español
   // Formato: 847 + prefijo empresa + CN(6 dígitos) + dígito control
   // CN = dígitos en posición 6-11 (índice 0-based) del EAN-13
+  // Calcula días estimados restantes de un medicamento
+  // Mapa de frecuencias texto → horas
+  const FREQ_HORAS = {
+    "Cada 6 horas": 6,
+    "Cada 8 horas": 8,
+    "Cada 12 horas": 12,
+    "Cada 24 horas": 24,
+    "Una vez por semana": 168,
+    "Si hace falta": null, // PRN — sin cálculo automático
+  };
+
+  const calcDiasRestantes = (med) => {
+    if(!med.stock || med.stock <= 0) return 0;
+    // PRN y suspendidos: no calcular
+    if(med.suspendido) return null;
+    const freqTexto = med.freq||"Cada 24 horas";
+    const freqH = FREQ_HORAS[freqTexto] !== undefined ? FREQ_HORAS[freqTexto] : parseFloat(freqTexto)||24;
+    if(freqH === null) return null; // PRN
+    const dosisNum = parseFloat(med.dosisUnidades)||1;
+    const dosiasDia = (24/freqH) * dosisNum;
+    if(!dosiasDia || dosiasDia <= 0) return null;
+    const dias = Math.round(med.stock / dosiasDia);
+    return Math.max(0, dias);
+  };
+
+  // Prioridad operativa de farmacia (independiente del umbral del cuidador)
+  const getPrioridadFarmacia = (diasRestantes) => {
+    if(diasRestantes === null) return null;
+    if(diasRestantes <= 3) return {label:"🔴 Urgente", color:"#DC2626", bg:"#FEF2F2"};
+    if(diasRestantes <= 7) return {label:"🟠 Próxima", color:"#F59E0B", bg:"#FFFBEB"};
+    return {label:"🟢 Normal", color:"#059669", bg:"#ECFDF5"};
+  };
+
+  // Crear solicitud de reposición con control de duplicados
+  const crearSolicitud = (med) => {
+    // Verificar si ya existe solicitud activa para este medicamento
+    const yaExiste = solicitudes.some(s =>
+      s.cn === (med.cn||med.n) &&
+      !["Preparación gestionada","No procede","Cancelada","Resuelta"].includes(s.estado)
+    );
+    if(yaExiste){
+      showToast("⚠ Ya existe una solicitud activa para este medicamento");
+      return null;
+    }
+    const dias = calcDiasRestantes(med);
+    const sol = {
+      id: Date.now(),
+      paciente: pacProfile.name+" "+(pacProfile.surname||""),
+      med: med.n,
+      cn: med.cn||"",
+      presentacion: med.presentacion||"",
+      pauta: `${med.dosis||1} unidad cada ${med.freq||24}h`,
+      stockEstimado: med.stock||0,
+      diasEstimados: dias,
+      fechaAgotamiento: dias ? new Date(Date.now()+dias*86400000).toLocaleDateString("es-ES") : "N/D",
+      farmacia: farmacia.nombre,
+      farmaciaId: farmacia.codigo||farmacia.nombre,
+      farmaciaEmail: loginProForm?.email||"",
+      fechaCreacion: new Date().toLocaleString("es-ES"),
+      estado: "Pendiente de revisión",
+      historial: [{
+        fecha: new Date().toLocaleString("es-ES"),
+        accion: "Solicitud creada por cuidador",
+        usuario: pacProfile.name
+      }]
+    };
+    setSolicitudes(p=>[...p,sol]);
+    showToast(`✓ Solicitud enviada a ${farmacia.nombre}`);
+    return sol;
+  };
+
   const extraerCN = (codigo) => {
     const raw = codigo.replace(/\D/g,'');
     if(raw.length===13 && (raw.startsWith("847")||raw.startsWith("84"))){
@@ -506,7 +595,7 @@ export default function NurseArt(){
   const Grad=({grad,children})=><div style={{background:grad,padding:"20px 16px 16px",flexShrink:0}}>{children}</div>;
 
   // Navbars
-  const pacNavItems=EM?[["pac-meds","💊","Mis tomas"],["pac-vitals","📊","Control"],["pac-chat","💬","Ayuda"],["pac-profile","⚙️","Ajustes"]]:[["pac-home","🏠","Inicio"],["pac-videos","🎬","Vídeos"],["pac-meds","💊","Tomas"],["pac-vitals","📊","Control"],["pac-store","🛒","Tienda"],["pac-chat","💬","Consultar"]];
+  const pacNavItems=EM?[["pac-meds","💊","Mis tomas"],["pac-vitals","📊","Control"],["pac-chat","💬","Ayuda"],["pac-profile","⚙️","Ajustes"]]:[["pac-home","🏠","Inicio"],["pac-videos","🎬","Vídeos"],["pac-meds","💊","Tomas"],["pac-vitals","📊","Control"],["pac-heridas","🩹","Heridas"],["pac-chat","💬","Chat"]];
   const pacNavEl=<div style={{display:"flex",background:D.nav,borderTop:`1px solid ${D.border}`,padding:EM?"10px 0 8px":"8px 0 6px",flexShrink:0}}>{pacNavItems.map(([id,ico,lbl])=><button key={id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:EM?4:2,padding:"4px 0",border:"none",background:"none",color:screen===id?"#059669":D.t3,fontSize:EM?11:8,fontWeight:700,cursor:"pointer",position:"relative"}} onClick={()=>go(id)}>{screen===id&&<div style={{position:"absolute",top:EM?-10:-8,left:"50%",transform:"translateX(-50%)",width:EM?24:20,height:3,borderRadius:2,background:"#059669"}}/>}<span style={{fontSize:EM?26:17}}>{ico}</span>{lbl}</button>)}</div>;
   const proNavEl=<div style={{display:"flex",background:D.nav,borderTop:`1px solid ${D.border}`,padding:"8px 0 6px",flexShrink:0}}>{[["home","🏠","Inicio"],["panel","🩺","Panel"],["learn","📚","Aprender"],["store","🛒","Tienda"],["pro-profile","👤","Perfil"]].map(([id,ico,lbl])=><button key={id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 0",border:"none",background:"none",color:screen===id?D.blue:D.t3,fontSize:8,fontWeight:700,cursor:"pointer",position:"relative"}} onClick={()=>go(id)}>{screen===id&&<div style={{position:"absolute",top:-8,left:"50%",transform:"translateX(-50%)",width:20,height:3,borderRadius:2,background:D.blue}}/>}<span style={{fontSize:17}}>{ico}</span>{lbl}</button>)}</div>;
 
@@ -533,13 +622,188 @@ export default function NurseArt(){
           </div>
         </div>
       </div>
-      <div onClick={()=>{setRole("pac");setOnbStep(0);go("onb-pac");}} style={{background:"linear-gradient(135deg,#065f46,#059669 70%,#0d9488)",borderRadius:22,padding:"20px 18px",cursor:"pointer",border:"1.5px solid rgba(52,211,153,.2)",boxShadow:"0 12px 40px rgba(5,150,105,.35)"}}>
+      <div onClick={()=>{setRole("pac");setOnbStep(0);go("onb-pac");}} style={{background:"linear-gradient(135deg,#065f46,#059669 70%,#0d9488)",borderRadius:22,padding:"20px 18px",cursor:"pointer",border:"1.5px solid rgba(52,211,153,.2)",boxShadow:"0 12px 40px rgba(5,150,105,.35)",marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{width:56,height:56,borderRadius:16,background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🤝</div>
           <div>
             <p style={{fontSize:17,fontWeight:900,color:"#fff",marginBottom:3}}>Soy cuidador/a o paciente</p>
             <p style={{fontSize:12,color:"rgba(255,255,255,.7)"}}>Familiar, cuidador en casa</p>
           </div>
+        </div>
+      </div>
+      <div onClick={()=>{setRole("farmacia");go("login-farmacia");}} style={{background:"linear-gradient(135deg,#4c1d95,#7C3AED 70%,#6d28d9)",borderRadius:22,padding:"20px 18px",cursor:"pointer",border:"1.5px solid rgba(167,139,250,.2)",boxShadow:"0 12px 40px rgba(124,58,237,.35)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:56,height:56,borderRadius:16,background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🏥</div>
+          <div>
+            <p style={{fontSize:17,fontWeight:900,color:"#fff",marginBottom:3}}>Soy farmacia</p>
+            <p style={{fontSize:12,color:"rgba(255,255,255,.7)"}}>Gestión de solicitudes de pacientes</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* ══ LOGIN FARMACIA ══ */}
+  {screen==="login-farmacia"&&(
+    <div style={{...S.sc,background:"linear-gradient(160deg,#4c1d95,#7C3AED 50%,#6d28d9)"}}>
+      <div style={{padding:"48px 24px 20px",textAlign:"center"}}>
+        <div style={{fontSize:48,marginBottom:8}}>🏥</div>
+        <h1 style={{fontSize:22,fontWeight:900,color:"#fff",marginBottom:4}}>Portal Farmacia</h1>
+        <p style={{fontSize:13,color:"rgba(255,255,255,.7)"}}>Gestión de solicitudes de pacientes</p>
+      </div>
+      <div style={{background:D.card,borderRadius:"28px 28px 0 0",flex:1,padding:"28px 24px",overflowY:"auto"}}>
+        <div style={{display:"flex",marginBottom:14,background:D.inp,borderRadius:12,padding:4}}>
+          <button onClick={()=>{setRegisterMode(false);setAuthError("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:9,background:!registerMode?"#7C3AED":"transparent",color:!registerMode?"#fff":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>Iniciar sesión</button>
+          <button onClick={()=>{setRegisterMode(true);setAuthError("");}} style={{flex:1,padding:"8px",border:"none",borderRadius:9,background:registerMode?"#7C3AED":"transparent",color:registerMode?"#fff":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>Registrar farmacia</button>
+        </div>
+        {registerMode&&(
+          <>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Nombre de la farmacia</p>
+            <div style={S.inp}><span>🏥</span><input style={S.inpEl} placeholder="Farmacia Central..." value={registerForm.name} onChange={e=>setRegisterForm(f=>({...f,name:e.target.value}))}/></div>
+          </>
+        )}
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Correo electrónico</p>
+        <div style={S.inp}><span>📧</span><input style={S.inpEl} placeholder="farmacia@email.com" value={loginProForm.email} onChange={e=>setLoginProForm(f=>({...f,email:e.target.value}))}/></div>
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Contraseña</p>
+        <div style={S.inp}><span>🔒</span><input type="password" style={S.inpEl} value={loginProForm.pass} onChange={e=>setLoginProForm(f=>({...f,pass:e.target.value}))}/></div>
+        {registerMode&&(
+          <>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Repetir contraseña</p>
+            <div style={S.inp}><span>🔒</span><input type="password" style={S.inpEl} placeholder="Repite la contraseña" value={registerForm.pass2} onChange={e=>setRegisterForm(f=>({...f,pass2:e.target.value}))}/></div>
+          </>
+        )}
+        {authError&&<p style={{fontSize:12,color:D.red,marginBottom:10,textAlign:"center",fontWeight:600}}>⚠ {authError}</p>}
+        <button style={{...S.btn("#7C3AED"),borderRadius:14,marginBottom:12}} onClick={async()=>{
+          setAuthError("");
+          if(registerMode){
+            if(loginProForm.pass!==registerForm.pass2){setAuthError("Las contraseñas no coinciden");return;}
+            const r=await registerUser(loginProForm.email,loginProForm.pass,"farmacia",registerForm.name||"Farmacia");
+            if(r.success){setRole("farmacia");setProProfile({name:registerForm.name||"Farmacia",email:loginProForm.email,avatar:"🏥"});go("farmacia-home");}else{setAuthError(r.error);}
+          } else {
+            const r=await loginUser(loginProForm.email,loginProForm.pass);
+            if(r.success){setRole("farmacia");setProProfile({name:r.name||"Farmacia",email:loginProForm.email,avatar:"🏥"});go("farmacia-home");}else{setAuthError(r.error);}
+          }
+        }}>{registerMode?"Registrar →":"Acceder →"}</button>
+        <button style={{background:"none",border:"none",color:D.t3,fontSize:12,cursor:"pointer",width:"100%"}} onClick={()=>go("role-select")}>← Volver</button>
+      </div>
+    </div>
+  )}
+
+  {/* ══ FARMACIA HOME ══ */}
+  {screen==="farmacia-home"&&(
+    <div style={S.sc}>
+      <div style={{background:"linear-gradient(135deg,#4c1d95,#7C3AED)",padding:"20px 20px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:40,height:40,borderRadius:12,background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏥</div>
+            <div>
+              <p style={{fontSize:14,fontWeight:900,color:"#fff"}}>{proProfile.name||"Farmacia"}</p>
+              <p style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>Portal farmacia — piloto</p>
+            </div>
+          </div>
+          <button onClick={()=>{logoutUser();go("role-select");}} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",borderRadius:9,padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Salir</button>
+        </div>
+        {/* Métricas */}
+        <div style={{display:"flex",gap:8}}>
+          {[
+            ["📋",solicitudes.length,"Solicitudes"],
+            ["⏳",solicitudes.filter(s=>s.estado==="Pendiente de revisión").length,"Pendientes"],
+            ["✅",solicitudes.filter(s=>["Revisada","Preparación gestionada"].includes(s.estado)).length,"Gestionadas"],
+          ].map(([e,n,l])=>(
+            <div key={l} style={{flex:1,background:"rgba(255,255,255,.15)",borderRadius:12,padding:"10px 8px",textAlign:"center"}}>
+              <p style={{fontSize:16}}>{e}</p>
+              <p style={{fontSize:18,fontWeight:900,color:"#fff"}}>{n}</p>
+              <p style={{fontSize:9,color:"rgba(255,255,255,.7)"}}>{l}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.scr}>
+        <p style={{fontSize:13,fontWeight:800,color:D.t,marginBottom:10}}>📋 Solicitudes de reposición</p>
+        {/* Filtros */}
+        <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+          {[["todos","Todas"],["urgente","🔴 Urgente ≤3d"],["proxima","🟠 Próxima ≤7d"],["normal","🟢 Normal"],["pendiente","Pendientes"],["gestionada","Gestionadas"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setFarmaciaFiltro(k)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:`1.5px solid ${farmaciaFiltro===k?"#7C3AED":"rgba(124,58,237,.3)"}`,background:farmaciaFiltro===k?"rgba(124,58,237,.15)":"transparent",color:farmaciaFiltro===k?"#7C3AED":"#6B7280",fontSize:11,fontWeight:farmaciaFiltro===k?800:600,cursor:"pointer"}}>{l}</button>
+          ))}
+        </div>
+
+        {solicitudes.length===0?(
+          <div style={{textAlign:"center",padding:"40px 16px"}}>
+            <p style={{fontSize:40,marginBottom:12}}>📭</p>
+            <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:6}}>Sin solicitudes</p>
+            <p style={{fontSize:12,color:D.t2}}>Cuando los pacientes vinculados soliciten reposición aparecerán aquí.</p>
+          </div>
+        ):(
+          [...solicitudes].filter(s=>{
+            const d = s.diasEstimados;
+            if(farmaciaFiltro==="urgente") return d!==null&&d<=3;
+            if(farmaciaFiltro==="proxima") return d!==null&&d>3&&d<=7;
+            if(farmaciaFiltro==="normal") return d===null||d>7;
+            if(farmaciaFiltro==="pendiente") return s.estado==="Pendiente de revisión";
+            if(farmaciaFiltro==="gestionada") return ["Preparación gestionada","Revisada"].includes(s.estado);
+            return true;
+          }).sort((a,b)=>(a.diasEstimados||99)-(b.diasEstimados||99)).map((s,i)=>(
+            <div key={i} style={{...S.card,marginBottom:10,border:`1.5px solid ${s.diasEstimados<=3?D.red:s.diasEstimados<=7?D.amber:D.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                <div>
+                  <p style={{fontSize:13,fontWeight:800,color:D.t}}>{s.med}</p>
+                  <p style={{fontSize:11,color:D.t2}}>👤 {s.paciente?s.paciente.split(" ").map(w=>w[0]).join(".").toUpperCase()+".":""} <span style={{fontSize:9,color:D.t3}}>(ID: {String(s.id).slice(-6)})</span></p>
+                  <p style={{fontSize:10,color:D.t3}}>CN: {s.cn} · {s.presentacion}</p>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{textAlign:"right"}}>
+                  {(()=>{const p=getPrioridadFarmacia(s.diasEstimados);return p?(
+                    <span style={{...pill(p.bg,p.color),fontSize:11,fontWeight:800,display:"block",marginBottom:3}}>{p.label}</span>
+                  ):null;})()}
+                  <span style={{fontSize:11,fontWeight:700,color:D.t}}>{s.diasEstimados!==null?`${s.diasEstimados} días est.`:"PRN"}</span>
+                </div>
+                  <p style={{fontSize:9,color:D.t3,marginTop:4}}>Agotamiento: {s.fechaAgotamiento}</p>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <p style={{fontSize:10,color:D.t2}}>📦 {s.stockEstimado} uds · {s.pauta}</p>
+                <span style={{...pill(D.blueBg,D.blue),fontSize:9}}>{s.estado}</span>
+              </div>
+              {/* Cambiar estado */}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {["Revisada","En gestión","Contactar con cuidador","Pendiente de disponibilidad","Preparación gestionada","Resuelta","No procede","Cancelada"].map(estado=>(
+                  <button key={estado} onClick={()=>{
+                    setSolicitudes(prev=>prev.map((sol,j)=>j===i?{...sol,estado,historial:[...(sol.historial||[]),{fecha:new Date().toLocaleString("es-ES"),accion:`Estado actualizado a: ${estado}`,usuario:"Farmacia"}]}:sol));
+                    showToast(`✓ Estado: ${estado}`);
+                  }} style={{...S.btnSm,background:s.estado===estado?D.blue:D.inp,color:s.estado===estado?"#fff":D.t2,border:`1px solid ${s.estado===estado?D.blue:D.border}`,padding:"5px 8px",borderRadius:8,fontSize:9,cursor:"pointer"}}>
+                    {estado}
+                  </button>
+                ))}
+              </div>
+              {/* Historial */}
+              {s.historial?.length>0&&(
+                <div style={{marginTop:8,padding:"8px 10px",background:D.inp,borderRadius:9}}>
+                  <p style={{fontSize:9,fontWeight:700,color:D.t3,marginBottom:4}}>HISTORIAL</p>
+                  {s.historial.slice(-3).map((h,j)=>(
+                    <p key={j} style={{fontSize:9,color:D.t2,marginBottom:2}}>• {h.fecha} — {h.accion}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+
+        {/* Panel métricas piloto */}
+        <div style={{...S.card,background:D.purpleBg,border:`1px solid ${D.purple}22`,marginTop:8}}>
+          <p style={{fontSize:12,fontWeight:800,color:D.purple,marginBottom:10}}>📊 Métricas del piloto</p>
+          {[
+            ["Solicitudes recibidas",solicitudes.length],
+            ["Pendientes de revisión",solicitudes.filter(s=>s.estado==="Pendiente de revisión").length],
+            ["Requieren contacto",solicitudes.filter(s=>s.estado==="Contactar con cuidador").length],
+            ["Gestionadas",solicitudes.filter(s=>s.estado==="Preparación gestionada").length],
+            ["No procede",solicitudes.filter(s=>s.estado==="No procede").length],
+          ].map(([l,v])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${D.border}`}}>
+              <p style={{fontSize:11,color:D.t2}}>{l}</p>
+              <p style={{fontSize:12,fontWeight:800,color:D.purple}}>{v}</p>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -1527,32 +1791,43 @@ export default function NurseArt(){
               "Bienestar":{c:"#F59E0B",bg:"#FFFBEB"},
             };
 
-            // Group by category when showing all
+            // Acordeones por categoría cuando filtro es Todos
             if(pacVidCat==="Todos"){
               const cats=["Medicación","Constantes","Higiene","Bienestar"];
               return cats.map(cat=>{
                 const vids=filtered.filter(v=>v.cat===cat);
                 if(!vids.length) return null;
                 const cc=catColors[cat]||{c:D.blue,bg:D.blueBg};
+                const isOpen=openCats[cat]||false;
                 return(
-                  <div key={cat}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,marginTop:4}}>
-                      <div style={{height:3,width:3,borderRadius:"50%",background:cc.c}}/>
-                      <p style={{fontSize:12,fontWeight:800,color:cc.c}}>{cat}</p>
-                      <div style={{flex:1,height:1,background:D.border}}/>
-                      <p style={{fontSize:10,color:D.t3}}>{vids.length} guías</p>
-                    </div>
-                    {vids.map((v,i)=>(
-                      <div key={i} onClick={()=>setPacVid(v)} style={{...S.row,cursor:"pointer",marginBottom:8}}>
-                        <div style={{width:46,height:46,borderRadius:12,background:cc.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{v.e}</div>
-                        <div style={{flex:1}}>
-                          <p style={{fontSize:EM?15:13,fontWeight:700,color:D.t,marginBottom:3,lineHeight:1.3}}>{v.t}</p>
-                          <p style={{fontSize:EM?13:10,color:D.t2,lineHeight:1.4}}>{v.d}</p>
-                          <p style={{fontSize:EM?12:10,color:cc.c,marginTop:3,fontWeight:600}}>▶ {v.dur}</p>
-                        </div>
-                        <span style={{color:D.t3,fontSize:16}}>›</span>
+                  <div key={cat} style={{...S.card,padding:0,overflow:"hidden",marginBottom:10,border:`1px solid ${D.border}`}}>
+                    {/* Cabecera acordeón */}
+                    <div onClick={()=>setOpenCats(p=>({...p,[cat]:!isOpen}))} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:isOpen?cc.bg:D.card}}>
+                      <div style={{width:36,height:36,borderRadius:10,background:cc.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
+                        {cat==="Medicación"?"💊":cat==="Constantes"?"📊":cat==="Higiene"?"🧼":"❤️"}
                       </div>
-                    ))}
+                      <div style={{flex:1}}>
+                        <p style={{fontSize:13,fontWeight:800,color:cc.c}}>{cat}</p>
+                        <p style={{fontSize:10,color:D.t2}}>{vids.length} recursos disponibles</p>
+                      </div>
+                      <span style={{color:cc.c,fontSize:18,fontWeight:700,transition:"transform .2s",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>›</span>
+                    </div>
+                    {/* Contenido desplegable */}
+                    {isOpen&&(
+                      <div style={{borderTop:`1px solid ${D.border}`}}>
+                        {vids.map((v,i)=>(
+                          <div key={i} onClick={()=>setPacVid(v)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:i<vids.length-1?`1px solid ${D.border}`:"none",cursor:"pointer",background:D.card}}>
+                            <div style={{width:42,height:42,borderRadius:11,background:cc.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{v.e}</div>
+                            <div style={{flex:1}}>
+                              <p style={{fontSize:EM?15:13,fontWeight:700,color:D.t,lineHeight:1.3}}>{v.t}</p>
+                              <p style={{fontSize:EM?12:10,color:D.t2,marginTop:2}}>{v.d}</p>
+                              <p style={{fontSize:10,color:cc.c,marginTop:3,fontWeight:600}}>▶ {v.dur}</p>
+                            </div>
+                            <span style={{color:D.t3,fontSize:16}}>›</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               });
@@ -1669,10 +1944,41 @@ export default function NurseArt(){
                       <div style={{marginTop:7}}>
                         <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                           <span style={{fontSize:10,color:m.stock<=STOCK_CRITICO?D.red:D.t2,fontWeight:m.stock<=STOCK_CRITICO?700:400}}>📦 {m.stock<=STOCK_CRITICO?"⚠ ":""}{m.stock} unidades</span>
+                          {calcDiasRestantes(m)!==null&&(
+                            <span style={{fontSize:10,color:calcDiasRestantes(m)<=umbralDias?D.red:D.t2,fontWeight:700}}>
+                              {calcDiasRestantes(m)<=umbralDias?"⚠ ":""}{calcDiasRestantes(m)} días estimados
+                            </span>
+                          )}
                         </div>
                         <div style={{height:4,background:D.inp,borderRadius:4}}>
                           <div style={{height:4,borderRadius:4,width:`${Math.min(100,(m.stock/(m.stockInicial||30))*100)}%`,background:m.stock<=STOCK_CRITICO?D.red:m.stock<=(m.stockInicial||30)*.3?D.amber:D.green}}/>
                         </div>
+                        {/* Alerta de reposición */}
+                        {calcDiasRestantes(m)!==null&&calcDiasRestantes(m)<=umbralDias&&(
+                          <div style={{background:"#FEF2F2",borderRadius:10,padding:"10px 12px",marginTop:8,border:`1px solid ${D.red}33`}}>
+                            <p style={{fontSize:11,fontWeight:700,color:D.red,marginBottom:6}}>
+                              ⚠ Quedan aproximadamente {calcDiasRestantes(m)} días de tratamiento
+                            </p>
+                            <p style={{fontSize:10,color:D.t2,marginBottom:8}}>⚠ Estimación basada únicamente en los datos introducidos por el usuario. No es una indicación médica ni farmacéutica. Fecha estimada de agotamiento: {calcDiasRestantes(m)>0?new Date(Date.now()+calcDiasRestantes(m)*86400000).toLocaleDateString("es-ES"):"Hoy o antes"}</p>
+                            <div style={{display:"flex",gap:6}}>
+                              {farmacia.estado==="vinculada"?(
+                                <button onClick={()=>{
+                                  if(!consentFarmacia){setPendingRepoMed(m);setShowConsentModal(true);}
+                                  else{crearSolicitud(m);}
+                                }} style={{...S.btnSm,background:"#059669",color:"#fff",padding:"7px 12px",borderRadius:9,fontSize:11,flex:1}}>
+                                  🏥 Gestionar reposición
+                                </button>
+                              ):(
+                                <button onClick={()=>setModal("farmacia-setup")} style={{...S.btnSm,background:D.blue,color:"#fff",padding:"7px 12px",borderRadius:9,fontSize:11,flex:1}}>
+                                  🏥 Vincular farmacia
+                                </button>
+                              )}
+                              <button onClick={()=>{setPendingRepoMed(m);setModal("corregir-stock");}} style={{...S.btnSm,background:D.inp,color:D.t2,border:`1px solid ${D.border}`,padding:"7px 10px",borderRadius:9,fontSize:11}}>
+                                🔧 Corregir stock
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2031,24 +2337,262 @@ export default function NurseArt(){
     <div style={S.sc}>
       <GradG>
         <div style={{display:"flex",alignItems:"center",gap:9}}>
-          <button onClick={()=>go(EM?"pac-home":"pac-home")} style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontSize:13,fontWeight:700}}>←</button>
-          <div><h2 style={{fontSize:18,fontWeight:900,color:"#fff"}}>Asistente IA</h2><p style={{fontSize:11,color:"rgba(255,255,255,.72)"}}>Pregunta lo que necesites</p></div>
+          <button onClick={()=>go("pac-home")} style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontSize:13,fontWeight:700}}>←</button>
+          <div>
+            <h2 style={{fontSize:18,fontWeight:900,color:"#fff"}}>{isLinkedToPro?"💬 Chat con tu enfermera":"Asistente IA"}</h2>
+            <p style={{fontSize:11,color:"rgba(255,255,255,.72)"}}>{isLinkedToPro?`Conectado con ${pacProfile.proName||"tu profesional"}`:"Pregunta lo que necesites"}</p>
+          </div>
+        </div>
+        {isLinkedToPro&&(
+          <div style={{display:"flex",gap:6,marginTop:10}}>
+            {[["chat","💬 Mensajes"],["ia","🤖 Asistente IA"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setPacVidCat(k)} style={{...chipSt(pacVidCat===k),fontSize:11}}>{l}</button>
+            ))}
+          </div>
+        )}
+      </GradG>
+
+      {/* Chat con profesional */}
+      {isLinkedToPro&&pacVidCat!=="ia"?(
+        <>
+          <div style={{...S.scr,display:"flex",flexDirection:"column",gap:8}}>
+            {proMsgs.length===0&&(
+              <div style={{textAlign:"center",padding:"32px 16px"}}>
+                <p style={{fontSize:32,marginBottom:8}}>💬</p>
+                <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:4}}>Chat con tu profesional</p>
+                <p style={{fontSize:12,color:D.t2}}>Aquí puedes enviar mensajes directamente a {pacProfile.proName||"tu enfermera"}. Te responderá en cuanto pueda.</p>
+              </div>
+            )}
+            {proMsgs.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.from==="pac"?"flex-end":"flex-start",gap:8,alignItems:"flex-end"}}>
+                {m.from==="pro"&&<div style={{width:28,height:28,borderRadius:"50%",background:D.blueBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>👩‍⚕️</div>}
+                <div style={{maxWidth:"78%"}}>
+                  <div style={{background:m.from==="pac"?"#2563EB":D.card,color:m.from==="pac"?"#fff":D.t,borderRadius:14,padding:"10px 14px",fontSize:EM?15:13,lineHeight:1.5,border:m.from==="pro"?`1px solid ${D.border}`:"none"}}>{m.text}</div>
+                  <p style={{fontSize:9,color:D.t3,marginTop:3,textAlign:m.from==="pac"?"right":"left"}}>{m.time||""}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{padding:"12px 16px",background:D.card,borderTop:`1px solid ${D.border}`}}>
+            <div style={{display:"flex",gap:8}}>
+              <div style={{...S.inp,flex:1,marginBottom:0}}><input style={S.inpEl} placeholder="Escribe un mensaje..." value={proMsgInput} onChange={e=>setProMsgInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&proMsgInput.trim()){setProMsgs(p=>[...p,{from:"pac",text:proMsgInput.trim(),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}]);setProMsgInput("");}}} /></div>
+              <button onClick={()=>{if(!proMsgInput.trim())return;setProMsgs(p=>[...p,{from:"pac",text:proMsgInput.trim(),time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}]);setProMsgInput("");}} style={{...S.btnSm,background:"#2563EB",color:"#fff",padding:"0 16px",borderRadius:12,fontSize:18}}>➤</button>
+            </div>
+          </div>
+        </>
+      ):(
+        /* Asistente IA */
+        <>
+          <div style={{...S.scr,display:"flex",flexDirection:"column",gap:8}}>
+            {chatMsgs.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.from==="ai"?"flex-start":"flex-end"}}>
+                <div style={{maxWidth:"82%",background:m.from==="ai"?D.greenBg:"#059669",color:m.from==="ai"?D.t:"#fff",borderRadius:14,padding:"10px 14px",fontSize:EM?15:12,lineHeight:1.6}}>{m.text}</div>
+              </div>
+            ))}
+            {chatLoading&&<p style={{fontSize:11,color:D.t3,textAlign:"center"}}>Escribiendo...</p>}
+            {!isLinkedToPro&&(
+              <div style={{...S.card,background:D.blueBg,border:`1px solid ${D.blue}22`,marginTop:8}}>
+                <p style={{fontSize:12,fontWeight:700,color:D.blue,marginBottom:4}}>💡 ¿Tienes un profesional asignado?</p>
+                <p style={{fontSize:11,color:D.t2,marginBottom:10}}>Si tienes un código de invitación de tu enfermera, vincúlate para activar el chat directo con ella.</p>
+                <button onClick={()=>setShowLinkModal(true)} style={{...S.btn(D.blue),borderRadius:10,fontSize:12}}>Introducir código →</button>
+              </div>
+            )}
+          </div>
+          <div style={{padding:"12px 16px",background:D.card,borderTop:`1px solid ${D.border}`}}>
+            <div style={{display:"flex",gap:8}}>
+              <div style={{...S.inp,flex:1,marginBottom:0}}><input style={S.inpEl} placeholder="Escribe tu pregunta..." value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()}/></div>
+              <button onClick={sendChat} style={{...S.btnSm,background:"#059669",color:"#fff",padding:"0 16px",borderRadius:12,fontSize:18}}>➤</button>
+            </div>
+          </div>
+        </>
+      )}
+      {pacNavEl}
+    </div>
+  )}
+
+  {/* ══ PAC HERIDAS ══ */}
+  {screen==="pac-heridas"&&(
+    <div style={S.sc}>
+      <GradG>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <button onClick={()=>go("pac-home")} style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontSize:13,fontWeight:700}}>←</button>
+          <div><h2 style={{fontSize:18,fontWeight:900,color:"#fff"}}>🩹 Seguimiento de heridas</h2><p style={{fontSize:11,color:"rgba(255,255,255,.72)"}}>Registro y evolución de curas</p></div>
         </div>
       </GradG>
-      <div style={{...S.scr,display:"flex",flexDirection:"column",gap:8}}>
-        {chatMsgs.map((m,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:m.from==="ai"?"flex-start":"flex-end"}}>
-            <div style={{maxWidth:"82%",background:m.from==="ai"?D.greenBg:"#059669",color:m.from==="ai"?D.t:"#fff",borderRadius:14,padding:"10px 14px",fontSize:EM?15:12,lineHeight:1.6}}>{m.text}</div>
+      <div style={S.scr}>
+        {/* Botón nueva herida */}
+        <button style={{...S.btn("#DC2626"),borderRadius:14,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"center",gap:8}} onClick={()=>setModal("nueva-herida")}>
+          <span style={{fontSize:18}}>＋</span> Registrar herida nueva
+        </button>
+
+        {/* Lista de heridas */}
+        {heridas.length===0?(
+          <div style={{textAlign:"center",padding:"40px 16px"}}>
+            <p style={{fontSize:40,marginBottom:12}}>🩹</p>
+            <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:6}}>Sin heridas registradas</p>
+            <p style={{fontSize:12,color:D.t2}}>Registra una herida para hacer seguimiento fotográfico y clínico.</p>
           </div>
-        ))}
-        {chatLoading&&<p style={{fontSize:11,color:D.t3,textAlign:"center"}}>Escribiendo...</p>}
+        ):(
+          heridas.map((h,i)=>(
+            <div key={i} onClick={()=>setShowHerida(h)} style={{...S.card,marginBottom:10,cursor:"pointer",border:`1px solid ${D.border}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"#FEF2F2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🩹</div>
+                <div style={{flex:1}}>
+                  <p style={{fontSize:13,fontWeight:800,color:D.t}}>{h.tipo||"Herida"}</p>
+                  <p style={{fontSize:11,color:D.t2}}>📍 {h.loc||"Sin localización"}</p>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <p style={{fontSize:10,color:D.t3}}>{h.fecha}</p>
+                  <span style={{...pill("#FEF2F2","#DC2626"),fontSize:9}}>{h.registros?.length||0} curas</span>
+                </div>
+              </div>
+              {h.registros?.length>0&&(
+                <div style={{background:D.inp,borderRadius:10,padding:"8px 10px"}}>
+                  <p style={{fontSize:10,color:D.t2,marginBottom:2}}>Última cura — {h.registros[h.registros.length-1].fecha}</p>
+                  <p style={{fontSize:11,color:D.t}}>{h.registros[h.registros.length-1].notas||"Sin notas"}</p>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
-      <div style={{padding:"12px 16px",background:D.card,borderTop:`1px solid ${D.border}`}}>
-        <div style={{display:"flex",gap:8}}>
-          <div style={{...S.inp,flex:1,marginBottom:0}}><input style={S.inpEl} placeholder="Escribe tu pregunta..." value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()}/></div>
-          <button onClick={sendChat} style={{...S.btnSm,background:"#059669",color:"#fff",padding:"0 16px",borderRadius:12,fontSize:18}}>➤</button>
+
+      {/* Modal nueva herida */}
+      {modal==="nueva-herida"&&(
+        <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:600}}>
+          <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"92%",overflowY:"auto"}}>
+            <div style={{width:32,height:4,background:D.border,borderRadius:4,margin:"0 auto 14px"}}/>
+            <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:16}}>🩹 Nueva herida</p>
+
+            {[
+              ["tipo","Tipo de herida","Úlcera por presión, herida quirúrgica...","📋"],
+              ["loc","Localización","Sacro, talón, abdomen...","📍"],
+            ].map(([k,l,ph,ic])=>(
+              <div key={k}>
+                <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>{l}</p>
+                <div style={S.inp}><span>{ic}</span><input style={S.inpEl} placeholder={ph} value={newHerida[k]} onChange={e=>setNewHerida(p=>({...p,[k]:e.target.value}))}/></div>
+              </div>
+            ))}
+
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Tamaño (cm)</p>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              {[["largo","Largo"],["ancho","Ancho"],["prof","Prof."]].map(([k,l])=>(
+                <div key={k} style={{flex:1}}>
+                  <p style={{fontSize:10,color:D.t3,marginBottom:4}}>{l}</p>
+                  <input style={{...S.inpEl,background:D.inp,borderRadius:10,padding:"10px 12px",width:"100%",border:`1px solid ${D.border}`}} type="number" placeholder="0" value={newHerida[k]} onChange={e=>setNewHerida(p=>({...p,[k]:e.target.value}))}/>
+                </div>
+              ))}
+            </div>
+
+            {[
+              ["color","Color del lecho","Rojo (granulación), amarillo (esfacelo), negro (necrosis)","🎨"],
+              ["exudado","Exudado","Ninguno, escaso, moderado, abundante + tipo","💧"],
+              ["bordes","Bordes","Definidos, macerados, eritematosos...","📐"],
+              ["pielPeri","Piel perilesional","Normal, macerada, eritematosa...","🔍"],
+              ["tratamiento","Tratamiento aplicado","Apósito, antiséptico, crema...","💊"],
+              ["notas","Notas adicionales","Observaciones relevantes...","📝"],
+            ].map(([k,l,ph,ic])=>(
+              <div key={k}>
+                <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>{l}</p>
+                <div style={S.inp}><span>{ic}</span><input style={S.inpEl} placeholder={ph} value={newHerida[k]} onChange={e=>setNewHerida(p=>({...p,[k]:e.target.value}))}/></div>
+              </div>
+            ))}
+
+            <button style={{...S.btn("#DC2626"),borderRadius:12,marginBottom:8,marginTop:4}} onClick={()=>{
+              if(!newHerida.tipo){showToast("⚠ Indica el tipo de herida");return;}
+              const h={...newHerida,id:Date.now(),fecha:new Date().toLocaleDateString("es-ES"),registros:[]};
+              setHeridas(p=>[...p,h]);
+              setNewHerida({tipo:"",loc:"",largo:"",ancho:"",prof:"",color:"",exudado:"",bordes:"",pielPeri:"",tratamiento:"",notas:"",fecha:""});
+              showToast("✓ Herida registrada");setModal(null);
+            }}>Guardar herida</button>
+            <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cancelar</button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Detalle herida */}
+      {showHerida&&(
+        <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:D.bg,zIndex:500,display:"flex",flexDirection:"column"}}>
+          <GradG>
+            <div style={{display:"flex",alignItems:"center",gap:9}}>
+              <button onClick={()=>setShowHerida(null)} style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontSize:13,fontWeight:700}}>←</button>
+              <div><h2 style={{fontSize:16,fontWeight:900,color:"#fff"}}>{showHerida.tipo}</h2><p style={{fontSize:11,color:"rgba(255,255,255,.72)"}}>📍 {showHerida.loc}</p></div>
+            </div>
+          </GradG>
+          <div style={S.scr}>
+            {/* Info herida */}
+            <div style={{...S.card,marginBottom:12}}>
+              <p style={{fontSize:12,fontWeight:800,color:D.t,marginBottom:10}}>📋 Datos de la herida</p>
+              {[
+                ["Tamaño",showHerida.largo&&showHerida.ancho?`${showHerida.largo}×${showHerida.ancho}×${showHerida.prof||"?"}cm`:"No especificado"],
+                ["Color del lecho",showHerida.color||"No especificado"],
+                ["Exudado",showHerida.exudado||"No especificado"],
+                ["Bordes",showHerida.bordes||"No especificado"],
+                ["Piel perilesional",showHerida.pielPeri||"No especificado"],
+                ["Tratamiento",showHerida.tratamiento||"No especificado"],
+              ].map(([l,v])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${D.border}`}}>
+                  <p style={{fontSize:11,color:D.t2}}>{l}</p>
+                  <p style={{fontSize:11,fontWeight:600,color:D.t,maxWidth:"55%",textAlign:"right"}}>{v}</p>
+                </div>
+              ))}
+              {showHerida.notas&&<p style={{fontSize:11,color:D.t2,marginTop:8,fontStyle:"italic"}}>"{showHerida.notas}"</p>}
+            </div>
+
+            {/* Historial de curas */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <p style={{fontSize:13,fontWeight:800,color:D.t}}>📅 Historial de curas</p>
+              <button onClick={()=>setModal("nueva-cura")} style={{...S.btnSm,background:"#DC2626",color:"#fff",padding:"6px 12px",borderRadius:9,fontSize:11}}>+ Nueva cura</button>
+            </div>
+
+            {(!showHerida.registros||showHerida.registros.length===0)?(
+              <p style={{fontSize:12,color:D.t3,textAlign:"center",padding:16}}>Sin registros de curas todavía</p>
+            ):(
+              showHerida.registros.map((r,i)=>(
+                <div key={i} style={{...S.card,marginBottom:8,background:D.inp}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                    <p style={{fontSize:12,fontWeight:700,color:D.t}}>Cura #{showHerida.registros.length-i}</p>
+                    <p style={{fontSize:10,color:D.t3}}>{r.fecha}</p>
+                  </div>
+                  {r.tamaño&&<p style={{fontSize:11,color:D.t2,marginBottom:3}}>📏 {r.tamaño}</p>}
+                  {r.aspecto&&<p style={{fontSize:11,color:D.t2,marginBottom:3}}>👁 {r.aspecto}</p>}
+                  {r.tratamiento&&<p style={{fontSize:11,color:D.t2,marginBottom:3}}>💊 {r.tratamiento}</p>}
+                  {r.notas&&<p style={{fontSize:11,color:D.t,fontStyle:"italic"}}>"{r.notas}"</p>}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Modal nueva cura */}
+          {modal==="nueva-cura"&&(
+            <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:700}}>
+              <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"85%",overflowY:"auto"}}>
+                <div style={{width:32,height:4,background:D.border,borderRadius:4,margin:"0 auto 14px"}}/>
+                <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:14}}>📝 Registrar cura</p>
+                {[
+                  ["tamaño","Tamaño actual (cm)","Ej: 3×2×0.5 cm","📏"],
+                  ["aspecto","Aspecto del lecho","Color, exudado, bordes...","👁"],
+                  ["tratamiento","Tratamiento aplicado","Apósito, limpieza, antiséptico...","💊"],
+                  ["notas","Observaciones","Evolución, cambios observados...","📝"],
+                ].map(([k,l,ph,ic])=>(
+                  <div key={k}>
+                    <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>{l}</p>
+                    <div style={S.inp}><span>{ic}</span><input style={S.inpEl} placeholder={ph} value={newHerida[k]||""} onChange={e=>setNewHerida(p=>({...p,[k]:e.target.value}))}/></div>
+                  </div>
+                ))}
+                <button style={{...S.btn("#DC2626"),borderRadius:12,marginBottom:8}} onClick={()=>{
+                  const cura={...newHerida,fecha:new Date().toLocaleDateString("es-ES"),hora:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})};
+                  setHeridas(prev=>prev.map(h=>h.id===showHerida.id?{...h,registros:[...(h.registros||[]),cura]}:h));
+                  setShowHerida(h=>({...h,registros:[...(h.registros||[]),cura]}));
+                  setNewHerida({tipo:"",loc:"",largo:"",ancho:"",prof:"",color:"",exudado:"",bordes:"",pielPeri:"",tratamiento:"",notas:"",tamaño:"",aspecto:""});
+                  showToast("✓ Cura registrada");setModal(null);
+                }}>Guardar cura</button>
+                <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {pacNavEl}
     </div>
   )}
@@ -2135,6 +2679,65 @@ export default function NurseArt(){
             </div>
           )}
         </div>
+        {/* Farmacia habitual */}
+        <div style={{...S.card,background:farmacia.estado==="vinculada"?"#ECFDF5":D.inp,border:`1.5px solid ${farmacia.estado==="vinculada"?"#059669":D.border}`,marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <span style={{fontSize:20}}>💊</span>
+            <div style={{flex:1}}>
+              <p style={{fontSize:13,fontWeight:800,color:D.t}}>Farmacia habitual</p>
+              <p style={{fontSize:11,color:D.t2}}>
+                {farmacia.estado==="vinculada"?`Vinculada: ${farmacia.nombre}`:
+                 farmacia.estado==="pendiente"?"Solicitud de vinculación pendiente":
+                 "Vincular para gestionar reposición de medicación"}
+              </p>
+            </div>
+            <span style={pill(
+              farmacia.estado==="vinculada"?D.greenBg:farmacia.estado==="pendiente"?"#FFFBEB":D.inp,
+              farmacia.estado==="vinculada"?"#059669":farmacia.estado==="pendiente"?"#F59E0B":D.t3
+            )}>
+              {farmacia.estado==="vinculada"?"Vinculada":farmacia.estado==="pendiente"?"Pendiente":"No vinculada"}
+            </span>
+          </div>
+          {farmacia.estado!=="vinculada"?(
+            <button style={{...S.btn("#059669"),borderRadius:11,fontSize:12}} onClick={()=>setModal("farmacia-setup")}>
+              🏥 {farmacia.estado==="pendiente"?"Ver solicitud pendiente":"Vincular farmacia"}
+            </button>
+          ):(
+            <div style={{display:"flex",gap:8}}>
+              <div style={{flex:1,background:"#fff",borderRadius:10,padding:"10px 12px"}}>
+                <p style={{fontSize:12,fontWeight:700,color:D.t}}>{farmacia.nombre}</p>
+                <p style={{fontSize:10,color:D.t2}}>{farmacia.direccion}</p>
+                <p style={{fontSize:10,color:D.t2}}>📞 {farmacia.telefono}</p>
+              </div>
+              <button onClick={()=>setModal("farmacia-setup")} style={{...S.btnSm,background:D.inp,color:D.t2,border:`1px solid ${D.border}`,padding:"8px 12px",borderRadius:10,fontSize:11}}>Editar</button>
+            </div>
+          )}
+          {consentFarmacia&&(
+            <div style={{marginTop:8,padding:"8px 10px",background:"rgba(5,150,105,.08)",borderRadius:9}}>
+              <p style={{fontSize:10,color:"#059669"}}>✓ Consentimiento otorgado el {consentFarmacia.fecha}</p>
+              <button onClick={()=>{setConsentFarmacia(null);showToast("✓ Consentimiento revocado");}} style={{background:"none",border:"none",fontSize:10,color:D.red,cursor:"pointer",padding:0,marginTop:3}}>Revocar autorización</button>
+            </div>
+          )}
+        </div>
+
+        {/* Solicitudes de reposición */}
+        {solicitudes.length>0&&(
+          <div style={{...S.card,marginBottom:14}}>
+            <p style={{fontSize:13,fontWeight:800,color:D.t,marginBottom:10}}>📋 Solicitudes de reposición</p>
+            {solicitudes.map((s,i)=>(
+              <div key={i} style={{padding:"10px",background:D.inp,borderRadius:10,marginBottom:8,border:`1px solid ${D.border}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <p style={{fontSize:12,fontWeight:700,color:D.t}}>{s.med}</p>
+                  <span style={{...pill(D.blueBg,D.blue),fontSize:9}}>{s.estado}</span>
+                </div>
+                <p style={{fontSize:10,color:D.t2}}>CN: {s.cn} · {s.diasEstimados} días estimados</p>
+                <p style={{fontSize:10,color:D.t2}}>Farmacia: {s.farmacia}</p>
+                <p style={{fontSize:9,color:D.t3,marginTop:4}}>{s.fechaCreacion}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Menú perfil */}
         <div style={{...S.card,padding:"5px 0"}}>
           {[{e:"💊",t:"Mis medicamentos",s:"Ver y editar",fn:()=>go("pac-meds")},{e:"📊",t:"Control diario",s:"Ver historial",fn:()=>go("pac-vitals")},{e:"✏️",t:"Editar perfil",s:"Nombre y datos personales",fn:()=>setModal("pac-edit")},{e:"🔔",t:"Recordatorios",s:"Configurar alertas",fn:()=>setModal("pac-reminders")},{e:"⚙️",t:"Configuración",s:"Preferencias de la app",fn:()=>setModal("pac-config")}].map(({e,t,s,fn})=>(
@@ -2249,6 +2852,8 @@ export default function NurseArt(){
         </div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>¿Con qué frecuencia?</p>
         <div style={S.inp}><span>🔄</span><select style={S.inpEl} value={pacMedForm.freq} onChange={e=>setPacMedForm(f=>({...f,freq:e.target.value}))}><option>Cada 6 horas</option><option>Cada 8 horas</option><option>Cada 12 horas</option><option>Cada 24 horas</option><option>Si hace falta</option><option>Una vez por semana</option></select></div>
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>💊 Unidades por toma</p>
+        <div style={S.inp}><span>🔢</span><input type="number" style={S.inpEl} placeholder="1" value={pacMedForm.dosisUnidades} onChange={e=>setPacMedForm(f=>({...f,dosisUnidades:e.target.value}))}/><span style={{fontSize:11,color:D.t3}}>unidades</span></div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>📦 ¿Cuántas unidades tiene la caja?</p>
         <div style={S.inp}><span>📦</span><input type="number" style={S.inpEl} placeholder="Ej: 28, 30, 20..." value={pacMedForm.stock} onChange={e=>setPacMedForm(f=>({...f,stock:e.target.value}))}/><span style={{fontSize:11,color:D.t3}}>unidades</span></div>
         <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Nota</p>
@@ -2258,9 +2863,9 @@ export default function NurseArt(){
           const horas=pacMedForm.horas&&pacMedForm.horas.length>0?pacMedForm.horas:[pacMedForm.t||"09:00"];
           const stockVal=pacMedForm.stock?parseInt(pacMedForm.stock):null;
           horas.forEach(hora=>{
-            setPacMeds(prev=>[...prev,{n:medSelected.nombre,principioActivo:medSelected.principioActivo,lab:medSelected.lab,forma:medSelected.forma,efg:medSelected.efg,fotoUrl:medSelected.fotoUrl||null,t:hora,taken:false,note:pacMedForm.note,freq:pacMedForm.freq,stock:stockVal,stockInicial:stockVal,confirmedLate:false}]);
+            setPacMeds(prev=>[...prev,{n:medSelected.nombre,principioActivo:medSelected.principioActivo,lab:medSelected.lab,forma:medSelected.forma,efg:medSelected.efg,fotoUrl:medSelected.fotoUrl||null,t:hora,taken:false,note:pacMedForm.note,freq:pacMedForm.freq,stock:stockVal,stockInicial:stockVal,dosisUnidades:parseFloat(pacMedForm.dosisUnidades)||1,confirmedLate:false,suspendido:false}]);
           });
-          setPacMedForm({t:"09:00",freq:"Cada 24 horas",note:"",stock:"",minStock:"5",horas:[]});
+          setPacMedForm({t:"09:00",freq:"Cada 24 horas",note:"",stock:"",minStock:"5",horas:[],dosisUnidades:"1"});
           setMedSelected(null);setMedSearchQuery("");setMedSearchResults([]);setMedDuplicateWarning(null);
           setModal(null);showToast(`✓ ${medSelected.nombre} añadido`);
         }}>Guardar medicamento ✓</button>
@@ -2669,6 +3274,121 @@ export default function NurseArt(){
         ))}
         <button style={{width:"100%",border:"none",cursor:"pointer",background:D.redBg,color:D.red,fontSize:EM?16:13,fontWeight:700,padding:14,borderRadius:14,marginTop:4}} onClick={()=>{go("role-select");setModal(null);}}>🚪 Cerrar sesión</button>
         <button style={{...S.btnG,borderRadius:12,marginTop:8}} onClick={()=>setModal(null)}>Cerrar</button>
+      </div>
+    </div>
+  )}
+
+  {/* Modal configuración farmacia */}
+  {modal==="farmacia-setup"&&(
+    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:600}}>
+      <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"90%",overflowY:"auto"}}>
+        <div style={{width:32,height:4,background:D.border,borderRadius:4,margin:"0 auto 14px"}}/>
+        <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:4}}>🏥 Farmacia habitual</p>
+        <p style={{fontSize:12,color:D.t2,marginBottom:16}}>Introduce los datos de tu farmacia para gestionar reposiciones de medicación.</p>
+        {[
+          ["nombre","Nombre de la farmacia","Farmacia Central...","🏥"],
+          ["direccion","Dirección","Calle, número, ciudad...","📍"],
+          ["telefono","Teléfono","612 345 678","📞"],
+          ["codigo","Código de vinculación (opcional)","Código proporcionado por la farmacia","🔑"],
+        ].map(([k,l,ph,ic])=>(
+          <div key={k}>
+            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>{l}</p>
+            <div style={S.inp}><span>{ic}</span><input style={S.inpEl} placeholder={ph} value={farmacia[k]||""} onChange={e=>setFarmacia(f=>({...f,[k]:e.target.value}))}/></div>
+          </div>
+        ))}
+
+        {/* Umbral de aviso */}
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>⏰ Avisar cuando queden (días)</p>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {[3,5,7,10,14].map(d=>(
+            <button key={d} onClick={()=>setUmbralDias(d)} style={{flex:1,padding:"10px 4px",borderRadius:10,border:`2px solid ${umbralDias===d?"#059669":D.border}`,background:umbralDias===d?D.greenBg:D.inp,color:umbralDias===d?"#059669":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>{d}d</button>
+          ))}
+        </div>
+
+        <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8}} onClick={()=>{
+          if(!farmacia.nombre){showToast("⚠ Indica el nombre de la farmacia");return;}
+          setFarmacia(f=>({...f,estado:"pendiente"}));
+          showToast("✓ Datos guardados — solicitud pendiente de confirmación");
+          setModal(null);
+        }}>Guardar farmacia</button>
+
+        {farmacia.estado==="pendiente"&&(
+          <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8,background:"#059669"}} onClick={()=>{
+            setFarmacia(f=>({...f,estado:"vinculada"}));
+            showToast("✓ Farmacia vinculada (simulación piloto)");
+            setModal(null);
+          }}>✓ Simular vinculación (piloto)</button>
+        )}
+        {farmacia.estado==="vinculada"&&(
+          <button style={{...S.btnG,borderRadius:12,marginBottom:8,borderColor:D.red,color:D.red}} onClick={()=>{
+            setFarmacia(f=>({...f,estado:"desvinculada"}));
+            showToast("✓ Farmacia desvinculada");setModal(null);
+          }}>Desvincular farmacia</button>
+        )}
+        <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cancelar</button>
+      </div>
+    </div>
+  )}
+
+  {/* Modal consentimiento farmacia */}
+  {showConsentModal&&pendingRepoMed&&(
+    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:700,padding:"0 20px"}}>
+      <div style={{background:D.card,borderRadius:20,padding:24,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
+        <p style={{fontSize:18,marginBottom:8,textAlign:"center"}}>🏥</p>
+        <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:8,textAlign:"center"}}>Autorización de datos</p>
+        <p style={{fontSize:12,color:D.t2,marginBottom:16,lineHeight:1.6}}>
+          Para gestionar la reposición de <strong>{pendingRepoMed.n}</strong>, autorizas a compartir con <strong>{farmacia.nombre}</strong> la siguiente información:
+        </p>
+        <div style={{background:D.inp,borderRadius:12,padding:12,marginBottom:16}}>
+          {[
+            "Tu nombre (paciente/cuidador)",
+            `Medicamento: ${pendingRepoMed.n}`,
+            `Código Nacional: ${pendingRepoMed.cn||"N/D"}`,
+            `Stock estimado: ${pendingRepoMed.stock||0} unidades`,
+            `Días estimados: ${calcDiasRestantes(pendingRepoMed)||"N/D"} días`,
+          ].map((item,i)=>(
+            <p key={i} style={{fontSize:11,color:D.t,marginBottom:4}}>✓ {item}</p>
+          ))}
+        </div>
+        <p style={{fontSize:10,color:D.t3,marginBottom:16,lineHeight:1.5}}>
+          Solo se compartirán los datos necesarios para esta gestión. Puedes revocar esta autorización en cualquier momento desde tu perfil.
+        </p>
+        <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8}} onClick={()=>{
+          const consent={fecha:new Date().toLocaleString("es-ES"),usuario:pacProfile.name,farmacia:farmacia.nombre};
+          setConsentFarmacia(consent);
+          crearSolicitud(pendingRepoMed);
+          setShowConsentModal(false);setPendingRepoMed(null);
+        }}>Autorizar y enviar solicitud</button>
+        <button style={{...S.btnG,borderRadius:12}} onClick={()=>{setShowConsentModal(false);setPendingRepoMed(null);}}>Cancelar</button>
+      </div>
+    </div>
+  )}
+
+  {/* Modal corrección de stock */}
+  {modal==="corregir-stock"&&pendingRepoMed&&(
+    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:600}}>
+      <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%"}}>
+        <div style={{width:32,height:4,background:D.border,borderRadius:4,margin:"0 auto 14px"}}/>
+        <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:4}}>🔧 Corregir stock</p>
+        <p style={{fontSize:12,color:D.t2,marginBottom:16}}>{pendingRepoMed.n}</p>
+        <div style={{background:D.inp,borderRadius:12,padding:12,marginBottom:12}}>
+          <p style={{fontSize:11,color:D.t2,marginBottom:4}}>Unidades calculadas por la app</p>
+          <p style={{fontSize:20,fontWeight:900,color:D.t}}>{pendingRepoMed.stock||0}</p>
+        </div>
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Unidades reales disponibles</p>
+        <div style={S.inp}><span>💊</span><input type="number" style={S.inpEl} placeholder="Introduce las unidades reales" value={stockCorreccionReal} onChange={e=>setStockCorreccionReal(e.target.value)}/></div>
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>Motivo de la corrección</p>
+        <div style={S.inp}><span>📝</span><input style={S.inpEl} placeholder="Nuevo envase, pérdida, error de registro..." value={stockCorreccionMotivo} onChange={e=>setStockCorreccionMotivo(e.target.value)}/></div>
+        <button style={{...S.btn(D.blue),borderRadius:12,marginBottom:8,marginTop:4}} onClick={()=>{
+          if(!stockCorreccionReal){showToast("⚠ Introduce las unidades reales");return;}
+          const real = parseInt(stockCorreccionReal)||0;
+          const motivo = stockCorreccionMotivo||"Sin motivo";
+          setPacMeds(prev=>prev.map((m,idx)=>m.n===pendingRepoMed.n?{...m,stock:real,correcciones:[...(m.correcciones||[]),{fecha:new Date().toLocaleString("es-ES"),usuario:pacProfile.name,calculado:m.stock||0,real,motivo}]}:m));
+          showToast(`✓ Stock corregido: ${real} unidades`);
+          setStockCorreccionReal("");setStockCorreccionMotivo("");
+          setModal(null);setPendingRepoMed(null);
+        }}>Guardar corrección</button>
+        <button style={{...S.btnG,borderRadius:12}} onClick={()=>{setModal(null);setPendingRepoMed(null);}}>Cancelar</button>
       </div>
     </div>
   )}
