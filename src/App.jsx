@@ -1654,55 +1654,124 @@ export default function NurseArt(){
           </div>
           <div onClick={()=>go("pac-profile")} style={{width:42,height:42,borderRadius:"50%",background:"rgba(255,255,255,.18)",border:"2px solid rgba(255,255,255,.35)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,cursor:"pointer"}}>{pacProfile.avatar}</div>
         </div>
+        {/* Resumen tomas */}
         <div style={{background:"rgba(255,255,255,.14)",borderRadius:16,padding:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <p style={{fontSize:EM?16:13,color:"#fff",fontWeight:900}}>Resumen de hoy</p>
-            <span style={{fontSize:10,color:"rgba(255,255,255,.8)"}}>{pacMeds.filter(m=>m.taken).length}/{pacMeds.length} tomas</span>
+            <p style={{fontSize:EM?16:13,color:"#fff",fontWeight:900}}>💊 Tomas de hoy</p>
+            <span style={{fontSize:EM?14:11,color:"rgba(255,255,255,.9)",fontWeight:700}}>{pacMeds.filter(m=>m.taken).length}/{pacMeds.length} completadas</span>
           </div>
-          <div style={{height:8,background:"rgba(255,255,255,.22)",borderRadius:8,overflow:"hidden"}}><div style={{height:"100%",width:(pacMeds.length?Math.round(pacMeds.filter(m=>m.taken).length/pacMeds.length*100):0)+"%",background:"#86EFAC",borderRadius:8}}/></div>
-          <p style={{fontSize:11,color:"rgba(255,255,255,.82)",marginTop:8}}>{pacMedsUnconfirmedPastDue.length?"Tienes una toma pendiente de revisar":"Sigue tus cuidados y registra cada actividad"}</p>
+          <div style={{height:8,background:"rgba(255,255,255,.22)",borderRadius:8,overflow:"hidden",marginBottom:8}}>
+            <div style={{height:"100%",width:(pacMeds.length?Math.round(pacMeds.filter(m=>m.taken).length/pacMeds.length*100):0)+"%",background:"#86EFAC",borderRadius:8}}/>
+          </div>
+          <p style={{fontSize:11,color:"rgba(255,255,255,.82)"}}>{pacMedsUnconfirmedPastDue.length?"⚠ Tienes una toma pendiente de revisar":"✓ Sigue tus cuidados y registra cada actividad"}</p>
         </div>
       </GradG>
+
       <div style={S.scr}>
+        {/* Alertas activas */}
         {pacMedsUnconfirmedPastDue.length>0&&(
-          <div onClick={()=>go("pac-meds")} style={{...S.card,background:D.redBg,border:"2px solid "+D.red,cursor:"pointer"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:24}}>⚠️</span><div style={{flex:1}}><p style={{fontSize:EM?17:13,fontWeight:900,color:D.red}}>Revisar una toma pendiente</p><p style={{fontSize:EM?14:11,color:D.t2,marginTop:3}}>{pacMedsUnconfirmedPastDue[0].n} · {pacMedsUnconfirmedPastDue[0].t}</p></div><span style={{fontSize:22,color:D.red}}>›</span></div>
+          <div onClick={()=>go("pac-meds")} style={{...S.card,background:D.redBg,border:"2px solid "+D.red,cursor:"pointer",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:24}}>⚠️</span>
+              <div style={{flex:1}}>
+                <p style={{fontSize:EM?17:13,fontWeight:900,color:D.red}}>Revisar toma pendiente</p>
+                <p style={{fontSize:EM?14:11,color:D.t2,marginTop:3}}>{pacMedsUnconfirmedPastDue[0].n} · {pacMedsUnconfirmedPastDue[0].t}</p>
+              </div>
+              <span style={{fontSize:22,color:D.red}}>›</span>
+            </div>
           </div>
         )}
-        <p style={{fontSize:EM?17:14,fontWeight:900,color:D.t,marginBottom:10}}>¿Qué necesitas hacer?</p>
-        <div style={{display:"grid",gridTemplateColumns:EM?"1fr":"1fr 1fr",gap:10,marginBottom:16}}>
+
+        {/* Alerta stock bajo */}
+        {(()=>{
+          const bajos=pacMeds.filter(m=>!m.suspendido&&calcDiasRestantes&&calcDiasRestantes(m)!==null&&calcDiasRestantes(m)<=umbralDias);
+          if(!bajos.length) return null;
+          return(
+            <div onClick={()=>go("pac-farmacia")} style={{...S.card,background:"#FFFBEB",border:"2px solid #F59E0B",cursor:"pointer",marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:24}}>🏥</span>
+                <div style={{flex:1}}>
+                  <p style={{fontSize:EM?16:13,fontWeight:900,color:"#92400E"}}>{bajos.length} medicamento{bajos.length>1?"s":""}  necesita{bajos.length>1?"n":""} reposición</p>
+                  <p style={{fontSize:EM?13:10,color:"#78350F",marginTop:2}}>{bajos[0].n} — {calcDiasRestantes(bajos[0])} días estimados</p>
+                </div>
+                <span style={{fontSize:22,color:"#F59E0B"}}>›</span>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 4 módulos principales */}
+        <p style={{fontSize:EM?17:13,fontWeight:900,color:D.t,marginBottom:10}}>¿Qué necesitas hacer hoy?</p>
+        <div style={{display:"grid",gridTemplateColumns:EM?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
           {[
-            ["pac-meds","💊","Medicación","Registrar tomas y revisar pauta",D.greenBg,D.green],
+            ["pac-meds","💊","Medicación",`${pacMeds.filter(m=>m.taken).length}/${pacMeds.length} tomas hoy`,D.greenBg,D.green],
             ["pac-vitals","📊","Registrar cuidados","Constantes, higiene y síntomas",D.blueBg,D.blue],
-            ["pac-videos","🎬","Aprender cuidados","Vídeos y guías recomendadas",D.purpleBg,D.purple],
-            ["pac-farmacia","🏥","Coordinar farmacia","Reposición y material sanitario",D.amberBg,D.amber],
+            ["pac-videos","🎬","Aprender","Vídeos y guías de cuidados",D.purpleBg,D.purple],
+            ["pac-farmacia","🏥","Farmacia",farmacia.estado==="vinculada"?farmacia.nombre:"Sin vincular",D.amberBg,D.amber],
           ].map(([id,ic,t,sub,bg,c])=>(
-            <div key={id} onClick={()=>go(id)} style={{background:D.card,border:"1px solid "+D.border,borderRadius:16,padding:EM?18:14,cursor:"pointer",minHeight:EM?88:112}}>
+            <div key={id} onClick={()=>go(id)} style={{background:D.card,border:`1px solid ${D.border}`,borderRadius:16,padding:EM?18:14,cursor:"pointer",minHeight:EM?88:100}}>
               <div style={{width:EM?42:36,height:EM?42:36,borderRadius:12,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:EM?22:18,marginBottom:8}}>{ic}</div>
-              <p style={{fontSize:EM?16:12,fontWeight:900,color:D.t,marginBottom:4}}>{t}</p><p style={{fontSize:EM?13:10,color:D.t2,lineHeight:1.4}}>{sub}</p>
+              <p style={{fontSize:EM?16:12,fontWeight:900,color:D.t,marginBottom:3}}>{t}</p>
+              <p style={{fontSize:EM?13:10,color:D.t2,lineHeight:1.4}}>{sub}</p>
             </div>
           ))}
         </div>
-        <div onClick={()=>go("pac-heridas")} style={{...S.card,background:heridas.some(h=>h.estado==="Revisar")?D.redBg:D.card,border:`1px solid ${heridas.some(h=>h.estado==="Revisar")?D.red:D.border}`,cursor:"pointer"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:38,height:38,borderRadius:11,background:heridas.some(h=>h.estado==="Revisar")?D.redBg:"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:D.red}}>✚</div><div style={{flex:1}}><p style={{fontSize:EM?16:13,fontWeight:900,color:D.t}}>Heridas</p><p style={{fontSize:EM?13:10,color:D.t2}}>{heridas.length===0?"Registrar y seguir evolución":""+heridas.length+" herida"+(heridas.length>1?"s":"")+" · "+(heridas.some(h=>h.estado==="Revisar")?"requiere revisión": "seguimiento activo")}</p></div><span style={{fontSize:20,color:heridas.some(h=>h.estado==="Revisar")?D.red:D.t3}}>›</span></div>
+
+        {/* Heridas */}
+        <div onClick={()=>go("pac-heridas")} style={{...S.card,background:heridas.some(h=>h.estado==="Revisar")?D.redBg:D.card,border:`1px solid ${heridas.some(h=>h.estado==="Revisar")?D.red:D.border}`,cursor:"pointer",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:38,height:38,borderRadius:11,background:"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🩹</div>
+            <div style={{flex:1}}>
+              <p style={{fontSize:EM?16:13,fontWeight:900,color:D.t}}>Seguimiento de heridas</p>
+              <p style={{fontSize:EM?13:10,color:D.t2}}>{heridas.length===0?"Registrar y seguir evolución":`${heridas.length} herida${heridas.length>1?"s":""} · ${heridas.some(h=>h.estado==="Revisar")?"requiere revisión":"seguimiento activo"}`}</p>
+            </div>
+            <span style={{fontSize:20,color:heridas.some(h=>h.estado==="Revisar")?D.red:D.t3}}>›</span>
+          </div>
         </div>
+
+        {/* Pauta de medicación */}
+        <div onClick={()=>go("pac-pauta")} style={{...S.card,cursor:"pointer",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:38,height:38,borderRadius:11,background:D.blueBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📋</div>
+            <div style={{flex:1}}>
+              <p style={{fontSize:EM?16:13,fontWeight:900,color:D.t}}>Pauta de medicación</p>
+              <p style={{fontSize:EM?13:10,color:D.t2}}>{pacMeds.length} medicamento{pacMeds.length!==1?"s":""} registrado{pacMeds.length!==1?"s":""}</p>
+            </div>
+            <span style={{fontSize:20,color:D.t3}}>›</span>
+          </div>
+        </div>
+
+        {/* Recursos o recomendaciones */}
         {recomendaciones.length>0?(
-          <div style={{...S.card,background:D.greenBg,border:"1px solid "+D.green+"55",cursor:"pointer"}} onClick={()=>go("pac-videos")}>
-            <p style={{fontSize:EM?16:13,fontWeight:900,color:D.green,marginBottom:5}}>⭐ Recomendado por tu profesional</p>
+          <div style={{...S.card,background:D.greenBg,border:`1px solid ${D.green}55`,cursor:"pointer",marginBottom:10}} onClick={()=>go("pac-videos")}>
+            <p style={{fontSize:EM?16:13,fontWeight:900,color:D.green,marginBottom:5}}>⭐ Tu profesional te recomienda</p>
             <p style={{fontSize:EM?14:11,color:D.t2,lineHeight:1.5}}>Tienes {recomendaciones.length} recurso{recomendaciones.length>1?"s":""} preparado{recomendaciones.length>1?"s":""} para tu situación.</p>
             <button style={{...S.btn("#059669"),marginTop:10,borderRadius:10,fontSize:EM?16:12,padding:EM?14:9}}>Ver vídeos y guías →</button>
           </div>
         ):(
-          <div style={{...S.card,background:D.purpleBg,border:"1px solid "+D.purple+"33",cursor:"pointer"}} onClick={()=>go("pac-videos")}>
+          <div style={{...S.card,background:D.purpleBg,border:`1px solid ${D.purple}33`,cursor:"pointer",marginBottom:10}} onClick={()=>go("pac-videos")}>
             <p style={{fontSize:EM?16:13,fontWeight:900,color:D.purple,marginBottom:5}}>🎬 Aprende a cuidar mejor</p>
-            <p style={{fontSize:EM?14:11,color:D.t2,lineHeight:1.5}}>Consulta vídeos y guías sencillas sobre medicación, constantes, higiene y señales de alarma.</p>
+            <p style={{fontSize:EM?14:11,color:D.t2,lineHeight:1.5}}>Vídeos y guías sobre medicación, constantes, higiene y señales de alarma.</p>
             <button style={{...S.btn("#7C3AED"),marginTop:10,borderRadius:10,fontSize:EM?16:12,padding:EM?14:9}}>Explorar recursos →</button>
           </div>
         )}
-        <div style={{...S.card,marginTop:2}}>
+
+        {/* Equipo de apoyo */}
+        <div style={{...S.card,marginBottom:4}}>
           <p style={{fontSize:EM?16:13,fontWeight:900,color:D.t,marginBottom:5}}>🤝 Tu equipo de apoyo</p>
-          <p style={{fontSize:EM?14:11,color:D.t2,lineHeight:1.5}}>{isLinkedToPro?"Tu profesional puede revisar tus registros y enviarte recomendaciones.":"Vincula a tu profesional para compartir tus registros con permiso."}</p>
-          <div style={{display:"flex",gap:8,marginTop:10}}><button onClick={()=>go("pac-profile")} style={{...S.btnG,borderRadius:10,fontSize:EM?15:11,padding:EM?13:9,flex:1}}>Ver perfil</button><button onClick={()=>go("pac-chat")} style={{...S.btn("#2563EB"),borderRadius:10,fontSize:EM?15:11,padding:EM?13:9,flex:1}}>Tengo una duda</button></div>
+          <p style={{fontSize:EM?14:11,color:D.t2,lineHeight:1.5,marginBottom:10}}>
+            {isLinkedToPro?`Vinculado con tu profesional. Puede revisar tus registros y enviarte recomendaciones.`:"Vincula a tu profesional para compartir tus registros con permiso."}
+          </p>
+          {isLinkedToPro&&(
+            <div style={{background:D.greenBg,borderRadius:10,padding:"8px 12px",marginBottom:10}}>
+              <p style={{fontSize:11,color:"#059669",fontWeight:700}}>✓ Seguimiento activo</p>
+              <p style={{fontSize:10,color:D.t2}}>Tu profesional tiene acceso a tus registros</p>
+            </div>
+          )}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>go("pac-profile")} style={{...S.btnG,borderRadius:10,fontSize:EM?15:11,padding:EM?13:9,flex:1}}>Ver perfil</button>
+            <button onClick={()=>go("pac-chat")} style={{...S.btn("#2563EB"),borderRadius:10,fontSize:EM?15:11,padding:EM?13:9,flex:1}}>{isLinkedToPro?"💬 Chat":"Tengo una duda"}</button>
+          </div>
         </div>
       </div>
       {pacNavEl}
