@@ -127,3 +127,46 @@ export const linkProCarer = async (inviteCode, proUid, proName) => {
     return { success: true, carerUid };
   } catch(e) { return { success: false, error: e.message }; }
 };
+
+// ── Colección compartida pharmacyRequests ──
+import { collection, addDoc, query, where, getDocs, updateDoc, doc as firestoreDoc } from "firebase/firestore";
+
+export const createPharmacyRequest = async (requestData) => {
+  try {
+    const ref = await addDoc(collection(db, "pharmacyRequests"), {
+      ...requestData,
+      createdAt: new Date().toISOString(),
+      estado: "Pendiente de revisión",
+    });
+    return { success: true, id: ref.id };
+  } catch(e) {
+    console.log("Error creando solicitud farmacia:", e.message);
+    return { success: false, error: e.message };
+  }
+};
+
+export const getPharmacyRequests = async (pharmacyId) => {
+  try {
+    const q = query(
+      collection(db, "pharmacyRequests"),
+      where("farmaciaId", "==", pharmacyId)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({id: d.id, ...d.data()}));
+  } catch(e) {
+    console.log("Error cargando solicitudes:", e.message);
+    return [];
+  }
+};
+
+export const updatePharmacyRequest = async (requestId, updates) => {
+  try {
+    await updateDoc(firestoreDoc(db, "pharmacyRequests", requestId), {
+      ...updates,
+      updatedAt: new Date().toISOString()
+    });
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+};
