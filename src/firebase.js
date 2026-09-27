@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, addDoc, query, where, getDocs, updateDoc, doc as firestoreDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
 
 const firebaseConfig = {
@@ -16,6 +17,7 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const auth = getAuth(app);
+export const functions = getFunctions(app, "europe-west1");
 
 export const registerUser = async (email, password, role, name) => {
   try {
@@ -38,6 +40,7 @@ export const loginUser = async (email, password) => {
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const uid = cred.user.uid;
+    const token = await cred.user.getIdTokenResult();
     let name = cred.user.displayName || "";
     let role = "";
     let roleStatus = "active";
@@ -55,6 +58,7 @@ export const loginUser = async (email, password) => {
       if(d.pacProfile?.name) name = d.pacProfile.name;
       if(d.role) role = d.role;
     }
+    role = token.claims.role || role;
     return { success: true, uid, role, roleStatus, name, email };
   } catch(e) {
     const msgs = {
@@ -71,6 +75,64 @@ export const logoutUser = () => signOut(auth);
 export const resetPassword = async (email) => {
   try { await sendPasswordResetEmail(auth, email); return { success: true }; }
   catch(e) { return { success: false, error: "No se pudo enviar el correo" }; }
+};
+export const approveProfessionalAccount = async (targetUid, professionalData = {}) => {
+  try {
+    const callable = httpsCallable(functions, "approveProfessionalAccount");
+    const result = await callable({ targetUid, professionalData });
+    return { success: true, ...(result.data || {}) };
+  } catch(e) { return { success: false, error: e.message || "No se pudo aprobar la cuenta" }; }
+};
+export const rejectProfessionalAccount = async (targetUid, reason = "No verificada") => {
+  try { const callable = httpsCallable(functions, "rejectProfessionalAccount"); const result = await callable({ targetUid, reason }); return { success: true, ...(result.data || {}) }; }
+  catch(e) { return { success: false, error: e.message || "No se pudo rechazar la cuenta" }; }
+};
+export const uploadProfessionalDocument = async (uid, file, kind) => {
+  const allowedKinds = ["colegiacion", "identidad"];
+  const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+  try {
+    if (!uid || !file) throw new Error("Falta el documento.");
+    if (!allowedKinds.includes(kind)) throw new Error("Tipo de documento no válido.");
+    if (file.size > 10 * 1024 * 1024) throw new Error("El archivo supera el máximo de 10 MB.");
+    if (!allowedTypes.includes(file.type)) throw new Error("Solo se admiten PDF, JPG, PNG o WEBP.");
+    const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const fileRef = ref(storage, `professionalDocuments/${uid}/${kind}-${Date.now()}.${ext}`);
+    await uploadBytes(fileRef, file, { contentType: file.type });
+    const url = await getDownloadURL(fileRef);
+    return {
+      success: true,
+      document: {
+        kind,
+        name: file.name.slice(0, 160),
+        size: file.size,
+        type: file.type,
+        path: fileRef.fullPath,
+        url,
+        uploadedAt: new Date().toISOString()
+      }
+    };
+  } catch (e) {
+    return { success: false, error: e.message || "No se pudo subir el documento." };
+  }
+};
+
+export const createProfessionalRequest = async (uid, data) => {
+  try {
+    const status = ["draft", "submitted"].includes(data?.status) ? data.status : "draft";
+    await setDoc(doc(db, "professionalRequests", uid), {
+      uid,
+      ...data,
+      status,
+      updatedAt: new Date().toISOString(),
+      requestedAt: data?.requestedAt || new Date().toISOString(),
+      ...(status === "submitted" ? { submittedAt: new Date().toISOString() } : {})
+    }, { merge: true });
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+export const getProfessionalRequests = async () => {
+  try { const snap = await getDocs(collection(db, "professionalRequests")); return snap.docs.map(d => ({ id: d.id, ...d.data() })); }
+  catch(e) { return []; }
 };
 export const onAuthChange = (callback) => onAuthStateChanged(auth, callback);
 
