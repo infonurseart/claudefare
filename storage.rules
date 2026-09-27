@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && request.auth.token.role == 'admin'; }
+    function isApprovedProfessional(patientUid) {
+      return signedIn() && request.auth.token.role == 'profesional' &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.verificationStatus == 'approved' &&
+        firestore.get(/databases/(default)/documents/careTeam/$(patientUid)/members/$(request.auth.uid)).data.status == 'active';
+    }
+
+    match /woundPhotos/{patientUid}/{woundId}/{fileName} {
+      allow read: if signedIn() && (
+        request.auth.uid == patientUid ||
+        (isApprovedProfessional(patientUid) &&
+          firestore.get(/databases/(default)/documents/careTeam/$(patientUid)/members/$(request.auth.uid)).data.permissions.verFotografias == true)
+      );
+      allow write: if signedIn() && request.auth.uid == patientUid &&
+        request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow delete: if false;
+    }
+
+    match /professionalDocuments/{uid}/{fileName} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if signedIn() && request.auth.uid == uid &&
+        request.resource.size < 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('(application/pdf|image/jpeg|image/png|image/webp)');
+      allow delete: if false;
+    }
+  }
+}

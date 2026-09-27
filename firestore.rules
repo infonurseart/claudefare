@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owner(uid) { return signedIn() && request.auth.uid == uid; }
+    function hasClaim(role) { return signedIn() && request.auth.token.role == role; }
+    function hasUserRole(role) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    function isAdmin() { return hasClaim('admin'); }
+    function isPharmacy() { return hasClaim('farmacia') || hasUserRole('farmacia'); }
+    function isApprovedProfessional() {
+      return hasClaim('profesional') &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'profesional' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.verificationStatus == 'approved';
+    }
+    function activeMember(patientUid, professionalUid) {
+      return isApprovedProfessional() && professionalUid == request.auth.uid &&
+        exists(/databases/$(database)/documents/careTeam/$(patientUid)/members/$(professionalUid)) &&
+        get(/databases/$(database)/documents/careTeam/$(patientUid)/members/$(professionalUid)).data.status == 'active';
+    }
+    function isAssignedPharmacy(pharmacyId) {
+      return isPharmacy() &&
+        get(/databases/$(database)/documents/userData/$(request.auth.uid)).data.pharmacyProfile.code == pharmacyId;
+    }
+
+    match /users/{uid} {
+      allow read: if owner(uid) || isAdmin();
+      allow create: if owner(uid) &&
+        request.resource.data.role in ['pendiente_verificacion', 'farmacia', 'cuidador'] &&
+        request.resource.data.verificationStatus in ['pending', 'not_required'];
+      allow update: if owner(uid) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.verificationStatus == resource.data.verificationStatus;
+      allow delete: if false;
+    }
+
+    match /userData/{uid} {
+      allow read, create, update: if owner(uid);
+      allow delete: if false;
+    }
+
+    match /professionalRequests/{uid} {
+      allow create: if owner(uid) && request.resource.data.uid == uid &&
+        request.resource.data.status in ['draft', 'submitted'];
+      allow update: if owner(uid) && request.resource.data.uid == uid &&
+        request.resource.data.status in ['draft', 'submitted'];
+      allow read: if owner(uid) || isAdmin();
+      allow delete: if false;
+    }
+
+    match /patientClinical/{patientUid} {
+      allow read: if owner(patientUid) || activeMember(patientUid, request.auth.uid);
+      allow create: if owner(patientUid) && request.resource.data.patientUid == patientUid;
+      allow update: if owner(patientUid) || activeMember(patientUid, request.auth.uid);
+      allow delete: if false;
+    }
+
+    match /careTeam/{patientUid}/members/{professionalUid} {
+      allow get: if owner(patientUid) || (isApprovedProfessional() && request.auth.uid == professionalUid);
+      allow list: if owner(patientUid);
+      allow create: if owner(patientUid) ||
+        (isApprovedProfessional() && request.auth.uid == professionalUid && request.resource.data.status == 'active');
+      allow update: if owner(patientUid) || (isApprovedProfessional() && request.auth.uid == professionalUid);
+      allow delete: if false;
+    }
+
+    match /inviteCodes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if owner(request.resource.data.uid);
+      allow update, delete: if false;
+    }
+
+    match /links/{linkId} {
+      allow get: if signedIn() && (resource.data.proUid == request.auth.uid || resource.data.carerUid == request.auth.uid);
+      allow list: if false;
+      allow create: if isApprovedProfessional() && request.resource.data.proUid == request.auth.uid &&
+        linkId == request.auth.uid + '_' + request.resource.data.carerUid;
+      allow update, delete: if false;
+    }
+
+    match /pharmacyRequests/{reqId} {
+      allow create: if owner(request.resource.data.carerUid);
+      allow read: if signedIn() &&
+        (resource.data.carerUid == request.auth.uid || isAssignedPharmacy(resource.data.farmaciaId));
+      allow update: if signedIn() &&
+        (resource.data.carerUid == request.auth.uid || isAssignedPharmacy(resource.data.farmaciaId));
+      allow delete: if false;
+    }
+  }
+}
