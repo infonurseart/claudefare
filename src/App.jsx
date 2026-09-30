@@ -55,6 +55,23 @@ const QUIZ=[
   {q:"¿Cuándo se considera hipertensión?",ops:["120/80 mmHg","130/85 mmHg","≥140/90 mmHg","150/95 mmHg"],ok:2},
 ];
 const CHART_DATA={labels:["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"],ta:[118,122,119,125,121,118,120],fc:[72,75,70,78,74,71,73]};
+
+// Catálogo tienda farmacia
+const CATALOGO_FARMACIA=[
+  {id:1,cat:"Curas y heridas",nombre:"Apósito hidrocoloide",desc:"Cura avanzada para heridas en fase de granulación",precio:8.50,unidad:"caja 10 uds",e:"🩹",stock:24},
+  {id:2,cat:"Curas y heridas",nombre:"Gasa estéril 10x10",desc:"Gasa no tejida estéril para curas y apósitos",precio:3.20,unidad:"caja 50 uds",e:"🏥",stock:48},
+  {id:3,cat:"Curas y heridas",nombre:"Suero fisiológico 500ml",desc:"Irrigación y limpieza de heridas",precio:2.80,unidad:"botella",e:"💧",stock:36},
+  {id:4,cat:"Curas y heridas",nombre:"Antiséptico Betadine",desc:"Solución yodada para desinfección de heridas",precio:6.40,unidad:"frasco 250ml",e:"🧴",stock:18},
+  {id:5,cat:"Medicación",nombre:"Paracetamol 1g",desc:"Analgésico y antipirético. Con receta.",precio:2.10,unidad:"caja 20 comp",e:"💊",stock:60,receta:true},
+  {id:6,cat:"Medicación",nombre:"Ibuprofeno 400mg",desc:"Antiinflamatorio. Con receta.",precio:3.50,unidad:"caja 20 comp",e:"💊",stock:45,receta:true},
+  {id:7,cat:"Movilidad",nombre:"Guantes de látex M",desc:"Guantes de exploración sin polvo",precio:5.90,unidad:"caja 100 uds",e:"🧤",stock:30},
+  {id:8,cat:"Movilidad",nombre:"Empapadores 60x60",desc:"Absorbentes desechables para incontinencia",precio:9.80,unidad:"paquete 20 uds",e:"🛏️",stock:20},
+  {id:9,cat:"Movilidad",nombre:"Crema barrera",desc:"Protección de piel perilesional y zonas de presión",precio:7.60,unidad:"tubo 100ml",e:"🧴",stock:15},
+  {id:10,cat:"Constantes",nombre:"Tiras reactivas glucemia",desc:"Compatible con la mayoría de glucómetros",precio:14.90,unidad:"caja 50 uds",e:"🩸",stock:22},
+  {id:11,cat:"Constantes",nombre:"Mascarilla quirúrgica",desc:"Protección tipo IIR, caja de 50 unidades",precio:8.20,unidad:"caja 50 uds",e:"😷",stock:40},
+  {id:12,cat:"Nutrición",nombre:"Batido nutricional",desc:"Suplemento nutricional completo para pacientes con dificultad de deglución",precio:18.50,unidad:"caja 6 botes",e:"🥤",stock:12},
+];
+const CATALOGO_CATS=["Todos","Curas y heridas","Medicación","Movilidad","Constantes","Nutrición"];
 const PRODUCTS_PRO=[
   {id:0,e:"🩺",n:"Tensiómetro Digital Pro",cat:"Equipos",p:49.99,op:69.99,r:4.8,rc:124,bg:"linear-gradient(135deg,#EFF6FF,#DBEAFE)",cc:"#2563EB",desc:"Tensiómetro de brazo con detección de arritmias.",specs:["Rango: 20–280 mmHg","Precisión: ±2 mmHg","Memoria: 60 lecturas","Batería: 4×AA"]},
   {id:1,e:"🩹",n:"Kit Vendajes Premium",cat:"Insumos",p:24.99,op:null,r:4.7,rc:89,bg:"linear-gradient(135deg,#F5F3FF,#EDE9FE)",cc:"#7C3AED",desc:"Kit completo para cuidados en el hogar.",specs:["40 gasas estériles","6 vendas elásticas","Esparadrapo 5m","Tiritas variadas"]},
@@ -226,6 +243,15 @@ const [pharmacyOrders,setPharmacyOrders]=useState([]);
 const [deferredInstallPrompt,setDeferredInstallPrompt]=useState(null);
 const [pwaInstalled,setPwaInstalled]=useState(false);
   const [adminLogin,setAdminLogin]=useState({email:"",pass:""});
+  // Notificaciones
+  const [notificaciones,setNotificaciones]=useState([]);
+  const [showNotifs,setShowNotifs]=useState(false);
+  const [unreadNotifs,setUnreadNotifs]=useState(0);
+  // Tienda farmacia
+  const [carritoFarmacia,setCarritoFarmacia]=useState([]);
+  const [farmaciaTab,setFarmaciaTab]=useState("solicitudes");
+  const [showCarrito,setShowCarrito]=useState(false);
+  const [farmaciaStoreCat,setFarmaciaStoreCat]=useState("Todos");
 
   // Pac vitals
   const [vitTab,setVitTab]=useState("constantes");
@@ -577,6 +603,23 @@ const submitPharmacyCart=async()=>{
     "Si hace falta": null, // PRN — sin cálculo automático
   };
 
+  // ── Notificaciones ──
+  const crearNotif = (tipo, titulo, cuerpo, datos={}) => {
+    const notif = {id:Date.now(),tipo,titulo,cuerpo,datos,fecha:new Date().toLocaleString("es-ES"),leida:false};
+    setNotificaciones(prev=>[notif,...prev.slice(0,49)]);
+    setUnreadNotifs(n=>n+1);
+    if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
+      try{new Notification(titulo,{body:cuerpo,icon:"/icons/icon-192.png"});}catch(e){}
+    }
+  };
+
+  const pedirPermisoNotifs = async () => {
+    if(typeof Notification!=="undefined"&&Notification.permission==="default"){
+      const perm = await Notification.requestPermission();
+      if(perm==="granted") showToast("✓ Notificaciones activadas");
+    }
+  };
+
   const calcDiasRestantes = (med) => {
     if(!med.stock || med.stock <= 0) return 0;
     // PRN y suspendidos: no calcular
@@ -634,6 +677,7 @@ const submitPharmacyCart=async()=>{
       }]
     };
     setSolicitudes(p=>[...p,sol]);
+    crearNotif("solicitud","📋 Solicitud enviada",`Solicitud de ${med.n} enviada a ${farmacia.nombre}`,{tipo:"solicitud"});
     // Guardar en colección compartida de Firebase
     if(authUser && farmacia.codigo){
       createPharmacyRequest({...sol, carerUid: authUser.uid}).then(r=>{
@@ -885,7 +929,7 @@ const submitPharmacyCart=async()=>{
           <button onClick={()=>{logoutUser();go("role-select");}} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",borderRadius:9,padding:"6px 12px",fontSize:11,cursor:"pointer"}}>Salir</button>
         </div>
         {/* Métricas */}
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
           {[
             ["📋",solicitudes.length,"Solicitudes"],
             ["⏳",solicitudes.filter(s=>s.estado==="Pendiente de revisión").length,"Pendientes"],
@@ -898,25 +942,31 @@ const submitPharmacyCart=async()=>{
             </div>
           ))}
         </div>
+        {/* Tabs */}
+        <div style={{display:"flex",background:"rgba(0,0,0,.2)",borderRadius:"12px 12px 0 0",overflow:"hidden"}}>
+          {[["solicitudes","📋 Solicitudes"],["tienda","🛒 Tienda"],["metricas","📊 Métricas"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setFarmaciaTab(k)} style={{flex:1,padding:"10px 4px",border:"none",background:farmaciaTab===k?"rgba(255,255,255,.15)":"transparent",color:farmaciaTab===k?"#fff":"rgba(255,255,255,.5)",fontSize:11,fontWeight:farmaciaTab===k?800:600,cursor:"pointer",borderBottom:farmaciaTab===k?"2px solid #fff":"2px solid transparent"}}>{l}</button>
+          ))}
+        </div>
       </div>
 
       <div style={S.scr}>
-        <p style={{fontSize:13,fontWeight:800,color:D.t,marginBottom:10}}>📋 Solicitudes y pedidos</p>
-        {!pharmacyProfile.code&&<div style={{...S.card,background:D.amberBg,border:`1px solid ${D.amber}55`,marginBottom:12}}><p style={{fontSize:12,fontWeight:800,color:D.amber,marginBottom:6}}>Configura el código de tu establecimiento</p><p style={{fontSize:10,color:D.t2,marginBottom:8}}>Comparte este mismo código con tus pacientes para recibir sus pedidos.</p><div style={S.inp}><span>🔑</span><input style={S.inpEl} placeholder="Ej. FARMACIA-CENTRAL" value={pharmacyProfile.code||""} onChange={e=>setPharmacyProfile(p=>({...p,code:e.target.value.toUpperCase()}))}/></div></div>}
-        {/* Filtros */}
-        <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
-          {[["todos","Todas"],["urgente","🔴 Urgente ≤3d"],["proxima","🟠 Próxima ≤7d"],["normal","🟢 Normal"],["pendiente","Pendientes"],["gestionada","Gestionadas"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setFarmaciaFiltro(k)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:`1.5px solid ${farmaciaFiltro===k?"#7C3AED":"rgba(124,58,237,.3)"}`,background:farmaciaFiltro===k?"rgba(124,58,237,.15)":"transparent",color:farmaciaFiltro===k?"#7C3AED":"#6B7280",fontSize:11,fontWeight:farmaciaFiltro===k?800:600,cursor:"pointer"}}>{l}</button>
-          ))}
-        </div>
+        {!pharmacyProfile.code&&<div style={{...S.card,background:D.amberBg,border:`1px solid ${D.amber}55`,marginBottom:12}}><p style={{fontSize:12,fontWeight:800,color:D.amber,marginBottom:6}}>⚙️ Configura el código de tu farmacia</p><p style={{fontSize:10,color:D.t2,marginBottom:8}}>Los pacientes lo usan para vincularse contigo.</p><div style={S.inp}><span>🔑</span><input style={S.inpEl} placeholder="Ej. FARMACIA-CENTRAL" value={pharmacyProfile.code||""} onChange={e=>setPharmacyProfile(p=>({...p,code:e.target.value.toUpperCase()}))}/></div></div>}
 
-        {solicitudes.length===0?(
-          <div style={{textAlign:"center",padding:"40px 16px"}}>
-            <p style={{fontSize:40,marginBottom:12}}>📭</p>
-            <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:6}}>Sin solicitudes</p>
-            <p style={{fontSize:12,color:D.t2}}>Las reposiciones y los pedidos de parafarmacia con tu código aparecerán aquí.</p>
+        {/* ── SOLICITUDES TAB ── */}
+        {farmaciaTab==="solicitudes"&&(<>
+          <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+            {[["todos","Todas"],["urgente","🔴 ≤3d"],["proxima","🟠 ≤7d"],["normal","🟢 Normal"],["pendiente","Pendientes"],["gestionada","Gestionadas"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setFarmaciaFiltro(k)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:`1.5px solid ${farmaciaFiltro===k?"#7C3AED":"rgba(124,58,237,.3)"}`,background:farmaciaFiltro===k?"rgba(124,58,237,.15)":"transparent",color:farmaciaFiltro===k?"#7C3AED":"#6B7280",fontSize:11,fontWeight:farmaciaFiltro===k?800:600,cursor:"pointer"}}>{l}</button>
+            ))}
           </div>
-        ):(
+          {solicitudes.length===0?(
+            <div style={{textAlign:"center",padding:"40px 16px"}}>
+              <p style={{fontSize:40,marginBottom:12}}>📭</p>
+              <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:6}}>Sin solicitudes</p>
+              <p style={{fontSize:12,color:D.t2}}>Las reposiciones de pacientes vinculados aparecerán aquí.</p>
+            </div>
+          ):(
           [...solicitudes].filter(s=>{
             const d = s.diasEstimados;
             if(farmaciaFiltro==="urgente") return d!==null&&d<=3;
@@ -970,23 +1020,95 @@ const submitPharmacyCart=async()=>{
             </div>
           ))
         )}
+        </>)}
 
-        {/* Panel métricas piloto */}
-        <div style={{...S.card,background:D.purpleBg,border:`1px solid ${D.purple}22`,marginTop:8}}>
-          <p style={{fontSize:12,fontWeight:800,color:D.purple,marginBottom:10}}>📊 Métricas del piloto</p>
-          {[
-            ["Solicitudes recibidas",solicitudes.length],
-            ["Pendientes de revisión",solicitudes.filter(s=>s.estado==="Pendiente de revisión").length],
-            ["Requieren contacto",solicitudes.filter(s=>s.estado==="Contactar con cuidador").length],
-            ["Gestionadas",solicitudes.filter(s=>s.estado==="Preparación gestionada").length],
-            ["No procede",solicitudes.filter(s=>s.estado==="No procede").length],
-          ].map(([l,v])=>(
-            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${D.border}`}}>
-              <p style={{fontSize:11,color:D.t2}}>{l}</p>
-              <p style={{fontSize:12,fontWeight:800,color:D.purple}}>{v}</p>
+        {/* ── TIENDA TAB ── */}
+        {farmaciaTab==="tienda"&&(<>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <p style={{fontSize:13,fontWeight:800,color:D.t}}>🛒 Catálogo de productos</p>
+            {carritoFarmacia.length>0&&(
+              <button onClick={()=>setShowCarrito(true)} style={{...S.btnSm,background:"#7C3AED",color:"#fff",borderRadius:9,padding:"6px 12px",fontSize:11}}>
+                Ver carrito ({carritoFarmacia.reduce((a,i)=>a+i.qty,0)}) →
+              </button>
+            )}
+          </div>
+          {/* Filtros categoría */}
+          <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+            {CATALOGO_CATS.map(c=>(
+              <button key={c} onClick={()=>setFarmaciaStoreCat(c)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:`1.5px solid ${farmaciaStoreCat===c?"#7C3AED":"rgba(124,58,237,.3)"}`,background:farmaciaStoreCat===c?"rgba(124,58,237,.15)":"transparent",color:farmaciaStoreCat===c?"#7C3AED":"#6B7280",fontSize:11,fontWeight:farmaciaStoreCat===c?800:600,cursor:"pointer"}}>{c}</button>
+            ))}
+          </div>
+          {(farmaciaStoreCat==="Todos"?CATALOGO_FARMACIA:CATALOGO_FARMACIA.filter(p=>p.cat===farmaciaStoreCat)).map((prod,i)=>{
+            const enCarrito=carritoFarmacia.find(x=>x.id===prod.id);
+            return(
+              <div key={i} style={{...S.card,marginBottom:8,border:`1px solid ${D.border}`,opacity:prod.stock===0?.6:1}}>
+                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <div style={{width:44,height:44,borderRadius:12,background:D.purpleBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{prod.e}</div>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                      <p style={{fontSize:13,fontWeight:700,color:D.t}}>{prod.nombre}</p>
+                      {prod.receta&&<span style={{...pill(D.amberBg,D.amber),fontSize:8}}>Con receta</span>}
+                    </div>
+                    <p style={{fontSize:10,color:D.t2,marginBottom:4,lineHeight:1.4}}>{prod.desc}</p>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div>
+                        <p style={{fontSize:14,fontWeight:900,color:"#7C3AED"}}>€{prod.precio.toFixed(2)}</p>
+                        <p style={{fontSize:9,color:D.t3}}>{prod.unidad} · Stock: {prod.stock}</p>
+                      </div>
+                      {prod.receta?(
+                        <p style={{fontSize:10,color:D.t3,fontStyle:"italic"}}>Requiere receta</p>
+                      ):enCarrito?(
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <button onClick={()=>setCarritoFarmacia(prev=>prev.map(x=>x.id===prod.id?{...x,qty:Math.max(1,x.qty-1)}:x))} style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${D.border}`,background:D.inp,cursor:"pointer",fontSize:14}}>−</button>
+                          <p style={{fontSize:13,fontWeight:700}}>{enCarrito.qty}</p>
+                          <button onClick={()=>setCarritoFarmacia(prev=>prev.map(x=>x.id===prod.id?{...x,qty:x.qty+1}:x))} style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${D.border}`,background:D.inp,cursor:"pointer",fontSize:14}}>+</button>
+                        </div>
+                      ):(
+                        <button onClick={()=>setCarritoFarmacia(prev=>[...prev,{...prod,qty:1}])} disabled={prod.stock===0} style={{...S.btnSm,background:"#7C3AED",color:"#fff",borderRadius:9,padding:"7px 12px",fontSize:11,opacity:prod.stock===0?0.5:1}}>
+                          {prod.stock===0?"Sin stock":"Añadir"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {carritoFarmacia.length>0&&(
+            <div style={{position:"sticky",bottom:0,background:D.card,borderTop:`1px solid ${D.border}`,padding:"12px 0",marginTop:8}}>
+              <button onClick={()=>setShowCarrito(true)} style={{...S.btn("#7C3AED"),borderRadius:12,fontSize:13}}>
+                🛒 Ver carrito ({carritoFarmacia.reduce((a,i)=>a+i.qty,0)} artículos) · €{carritoFarmacia.reduce((a,i)=>a+i.precio*i.qty,0).toFixed(2)}
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>)}
+
+        {/* ── MÉTRICAS TAB ── */}
+        {farmaciaTab==="metricas"&&(
+          <div style={{...S.card,background:D.purpleBg,border:`1px solid ${D.purple}22`}}>
+            <p style={{fontSize:13,fontWeight:800,color:D.purple,marginBottom:14}}>📊 Métricas del sistema</p>
+            {[
+              ["Total solicitudes",solicitudes.length],
+              ["🔴 Urgentes (≤3 días)",solicitudes.filter(s=>(s.diasEstimados||99)<=3).length],
+              ["🟠 Próximas (≤7 días)",solicitudes.filter(s=>(s.diasEstimados||99)>3&&(s.diasEstimados||99)<=7).length],
+              ["🟢 Normales (>7 días)",solicitudes.filter(s=>(s.diasEstimados||99)>7).length],
+              ["Pendientes de revisión",solicitudes.filter(s=>s.estado==="Pendiente de revisión").length],
+              ["Requieren contacto",solicitudes.filter(s=>s.estado==="Contactar con cuidador").length],
+              ["Preparación gestionada",solicitudes.filter(s=>s.estado==="Preparación gestionada").length],
+              ["Resueltas",solicitudes.filter(s=>s.estado==="Resuelta").length],
+              ["No procede",solicitudes.filter(s=>s.estado==="No procede").length],
+              ["Pedidos de tienda",pharmacyOrders.length],
+            ].map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${D.border}`}}>
+                <p style={{fontSize:11,color:D.t2}}>{l}</p>
+                <p style={{fontSize:13,fontWeight:800,color:D.purple}}>{v}</p>
+              </div>
+            ))}
+            <div style={{background:D.amberBg,borderRadius:10,padding:"10px 12px",marginTop:12}}>
+              <p style={{fontSize:10,color:"#92400E",lineHeight:1.5}}>⚠ Las métricas se calculan sobre los datos de esta sesión. En producción se cargarán desde Firestore.</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )}
@@ -2051,7 +2173,13 @@ const submitPharmacyCart=async()=>{
             <p style={{fontSize:11,color:"rgba(255,255,255,.75)",fontWeight:700}}>Transición hospital–casa</p>
             <h2 style={{fontSize:EM?25:21,fontWeight:900,color:"#fff",marginTop:3}}>{new Date().getHours()<12?"Buenos días":"Buenas tardes"}, {pacProfile.name} 👋</h2>
           </div>
-          <div onClick={()=>go("pac-profile")} style={{width:42,height:42,borderRadius:"50%",background:"rgba(255,255,255,.18)",border:"2px solid rgba(255,255,255,.35)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,cursor:"pointer"}}>{pacProfile.avatar}</div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={()=>{setShowNotifs(true);}} style={{position:"relative",background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:10,width:38,height:38,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              🔔
+              {unreadNotifs>0&&<span style={{position:"absolute",top:-3,right:-3,background:"#EF4444",color:"#fff",borderRadius:"50%",width:17,height:17,fontSize:9,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center"}}>{unreadNotifs}</span>}
+            </button>
+            <div onClick={()=>go("pac-profile")} style={{width:38,height:38,borderRadius:"50%",background:"rgba(255,255,255,.18)",border:"2px solid rgba(255,255,255,.35)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,cursor:"pointer"}}>{pacProfile.avatar}</div>
+          </div>
         </div>
         {/* Resumen tomas */}
         <div style={{background:"rgba(255,255,255,.14)",borderRadius:16,padding:14}}>
@@ -4181,6 +4309,99 @@ const submitPharmacyCart=async()=>{
         ))}
         <button style={{...S.btn(D.green),borderRadius:12,marginBottom:8}} onClick={()=>setModal(null)}>Hecho ✓</button>
         <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cerrar</button>
+      </div>
+    </div>
+  )}
+
+  {/* ══ PANEL NOTIFICACIONES ══ */}
+  {showNotifs&&(
+    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:800}}>
+      <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"85%",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:20}}>🔔</span>
+            <p style={{fontSize:15,fontWeight:900,color:D.t}}>Notificaciones</p>
+            {unreadNotifs>0&&<span style={{...pill(D.redBg,D.red),fontSize:10}}>{unreadNotifs} nuevas</span>}
+          </div>
+          <button onClick={()=>{setShowNotifs(false);setUnreadNotifs(0);setNotificaciones(prev=>prev.map(n=>({...n,leida:true})));}} style={{background:"none",border:"none",color:D.t3,fontSize:22,cursor:"pointer",lineHeight:1}}>✕</button>
+        </div>
+        {notificaciones.length===0?(
+          <div style={{textAlign:"center",padding:"32px 16px"}}>
+            <p style={{fontSize:32,marginBottom:8}}>🔕</p>
+            <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:4}}>Sin notificaciones</p>
+            <p style={{fontSize:12,color:D.t2}}>Aquí aparecerán actualizaciones de farmacia, recomendaciones de tu profesional y alertas de salud.</p>
+          </div>
+        ):(
+          notificaciones.map((n,i)=>(
+            <div key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:`1px solid ${D.border}`,opacity:n.leida?0.6:1}}>
+              <div style={{width:40,height:40,borderRadius:12,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,
+                background:n.tipo==="alerta"?D.redBg:n.tipo==="farmacia"?D.purpleBg:n.tipo==="profesional"?D.greenBg:D.blueBg}}>
+                {n.tipo==="alerta"?"⚠️":n.tipo==="farmacia"?"🏥":n.tipo==="profesional"?"👩‍⚕️":"📋"}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <p style={{fontSize:13,fontWeight:n.leida?600:800,color:D.t}}>{n.titulo}</p>
+                  {!n.leida&&<div style={{width:7,height:7,borderRadius:"50%",background:D.blue,flexShrink:0}}/>}
+                </div>
+                <p style={{fontSize:11,color:D.t2,lineHeight:1.4,marginBottom:3}}>{n.cuerpo}</p>
+                <p style={{fontSize:9,color:D.t3}}>{n.fecha}</p>
+              </div>
+            </div>
+          ))
+        )}
+        {notificaciones.length>0&&(
+          <button onClick={()=>{setNotificaciones([]);setUnreadNotifs(0);}} style={{...S.btnG,borderRadius:12,marginTop:12,fontSize:12}}>Limpiar todas</button>
+        )}
+        {typeof Notification!=="undefined"&&Notification.permission==="default"&&(
+          <div style={{...S.card,background:D.blueBg,border:`1px solid ${D.blue}33`,marginTop:12}}>
+            <p style={{fontSize:12,fontWeight:700,color:D.blue,marginBottom:4}}>💡 Activa las notificaciones</p>
+            <p style={{fontSize:11,color:D.t2,marginBottom:10}}>Recibe alertas aunque no tengas la app abierta.</p>
+            <button onClick={pedirPermisoNotifs} style={{...S.btn(D.blue),borderRadius:10,fontSize:12}}>Activar notificaciones</button>
+          </div>
+        )}
+      </div>
+    </div>
+  )}
+
+  {/* ══ CARRITO FARMACIA ══ */}
+  {showCarrito&&(
+    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:800}}>
+      <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"85%",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <p style={{fontSize:15,fontWeight:900,color:D.t}}>🛒 Carrito</p>
+          <button onClick={()=>setShowCarrito(false)} style={{background:"none",border:"none",color:D.t3,fontSize:22,cursor:"pointer"}}>✕</button>
+        </div>
+        {carritoFarmacia.length===0?(
+          <p style={{textAlign:"center",color:D.t2,padding:"24px 0"}}>El carrito está vacío</p>
+        ):(
+          <>
+            {carritoFarmacia.map((item,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${D.border}`}}>
+                <span style={{fontSize:24}}>{item.e}</span>
+                <div style={{flex:1}}>
+                  <p style={{fontSize:13,fontWeight:700,color:D.t}}>{item.nombre}</p>
+                  <p style={{fontSize:10,color:D.t2}}>€{item.precio.toFixed(2)} · {item.unidad}</p>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <button onClick={()=>setCarritoFarmacia(prev=>prev.map((x,j)=>j===i?{...x,qty:Math.max(1,x.qty-1)}:x))} style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${D.border}`,background:D.inp,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                  <p style={{fontSize:13,fontWeight:700,color:D.t,minWidth:20,textAlign:"center"}}>{item.qty}</p>
+                  <button onClick={()=>setCarritoFarmacia(prev=>prev.map((x,j)=>j===i?{...x,qty:x.qty+1}:x))} style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${D.border}`,background:D.inp,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+                  <button onClick={()=>setCarritoFarmacia(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:D.red,fontSize:16,cursor:"pointer"}}>✕</button>
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"12px 0",marginBottom:12}}>
+              <p style={{fontSize:13,fontWeight:700,color:D.t}}>Total</p>
+              <p style={{fontSize:16,fontWeight:900,color:D.t}}>€{carritoFarmacia.reduce((a,i)=>a+i.precio*i.qty,0).toFixed(2)}</p>
+            </div>
+            <button style={{...S.btn("#7C3AED"),borderRadius:12,marginBottom:8}} onClick={()=>{
+              showToast("✓ Pedido tramitado — la farmacia lo gestionará");
+              setPharmacyOrders(prev=>[...prev,{items:[...carritoFarmacia],fecha:new Date().toLocaleString("es-ES"),total:carritoFarmacia.reduce((a,i)=>a+i.precio*i.qty,0).toFixed(2),estado:"Recibido"}]);
+              setCarritoFarmacia([]);setShowCarrito(false);
+            }}>Tramitar pedido →</button>
+            <button style={{...S.btnG,borderRadius:12}} onClick={()=>setShowCarrito(false)}>Seguir comprando</button>
+          </>
+        )}
       </div>
     </div>
   )}
