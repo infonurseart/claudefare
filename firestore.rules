@@ -82,16 +82,12 @@ service cloud.firestore {
     }
 
     match /pharmacyRequests/{reqId} {
-      allow create: if (request.resource.data.type == 'pharmacy_onboarding' && owner(request.resource.data.pharmacyUid)) || owner(request.resource.data.carerUid);
-      allow read: if isAdmin() || (signedIn() &&
-        (resource.data.pharmacyUid == request.auth.uid || resource.data.carerUid == request.auth.uid || isAssignedPharmacy(resource.data.farmaciaId)));
-      allow update: if isAdmin() || (signedIn() &&
-        (resource.data.carerUid == request.auth.uid || isAssignedPharmacy(resource.data.farmaciaId)));
+      allow create: if owner(request.resource.data.carerUid);
+      allow read: if signedIn() &&
+        (resource.data.carerUid == request.auth.uid || isAssignedPharmacy(resource.data.farmaciaId));
+      allow update: if signedIn() &&
+        (resource.data.carerUid == request.auth.uid || isAssignedPharmacy(resource.data.farmaciaId));
       allow delete: if false;
-    }
-    match /pharmacyDirectory/{pharmacyUid} {
-      allow read: if signedIn() && resource.data.status == 'approved';
-      allow write: if isAdmin();
     }
   }
 }
