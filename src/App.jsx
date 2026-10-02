@@ -252,6 +252,11 @@ const [pwaInstalled,setPwaInstalled]=useState(false);
   const [farmaciaTab,setFarmaciaTab]=useState("solicitudes");
   const [showCarrito,setShowCarrito]=useState(false);
   const [farmaciaStoreCat,setFarmaciaStoreCat]=useState("Todos");
+  const [farmaciaSearchQuery,setFarmaciaSearchQuery]=useState("");
+  const [farmaciaSearchResults,setFarmaciaSearchResults]=useState([]);
+  const [farmaciaSearchLoading,setFarmaciaSearchLoading]=useState(false);
+  const [farmaciaSearchError,setFarmaciaSearchError]=useState("");
+  const [showFarmaciaSearch,setShowFarmaciaSearch]=useState(false);
 
   // Pac vitals
   const [vitTab,setVitTab]=useState("constantes");
@@ -601,6 +606,41 @@ const submitPharmacyCart=async()=>{
     "Cada 24 horas": 24,
     "Una vez por semana": 168,
     "Si hace falta": null, // PRN — sin cálculo automático
+  };
+
+  // ── Buscar farmacias reales (OpenStreetMap via Cloudflare Worker) ──
+  const buscarFarmacias = async (query) => {
+    if(!query || query.trim().length < 2) return;
+    setFarmaciaSearchLoading(true);
+    setFarmaciaSearchError("");
+    try {
+      const res = await fetch(`/functions/buscar-farmacia?q=${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      setFarmaciaSearchResults(data.farmacias || []);
+      if((data.farmacias||[]).length === 0) setFarmaciaSearchError("No se encontraron farmacias con ese nombre");
+    } catch(e) {
+      setFarmaciaSearchError("Error al buscar farmacias — comprueba tu conexión");
+      setFarmaciaSearchResults([]);
+    }
+    setFarmaciaSearchLoading(false);
+  };
+
+  const seleccionarFarmacia = async (f) => {
+    setFarmacia(prev=>({
+      ...prev,
+      nombre: f.nombre,
+      direccion: f.direccion,
+      telefono: f.telefono,
+      web: f.web||"",
+      osmId: f.id,
+      estado: "pendiente",
+      participaNurseArt: f.participaNurseArt||false
+    }));
+    setShowFarmaciaSearch(false);
+    setFarmaciaSearchResults([]);
+    setFarmaciaSearchQuery("");
+    showToast(`✓ Farmacia seleccionada: ${f.nombre}`);
   };
 
   // ── Notificaciones ──
@@ -2235,6 +2275,7 @@ const submitPharmacyCart=async()=>{
             ["pac-vitals","📊","Registrar cuidados","Constantes, higiene y síntomas",D.blueBg,D.blue],
             ["pac-videos","🎬","Aprender","Vídeos y guías de cuidados",D.purpleBg,D.purple],
             ["pac-farmacia","🏥","Farmacia",farmacia.estado==="vinculada"?farmacia.nombre:"Sin vincular",D.amberBg,D.amber],
+            ["pac-tienda","🛒","Material",farmacia.estado==="vinculada"?"Pedir a tu farmacia":"Vincula tu farmacia",D.greenBg,D.green],
           ].map(([id,ic,t,sub,bg,c])=>(
             <div key={id} onClick={()=>go(id)} style={{background:D.card,border:`1px solid ${D.border}`,borderRadius:16,padding:EM?18:14,cursor:"pointer",minHeight:EM?88:100}}>
               <div style={{width:EM?42:36,height:EM?42:36,borderRadius:12,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:EM?22:18,marginBottom:8}}>{ic}</div>
@@ -3228,6 +3269,20 @@ const submitPharmacyCart=async()=>{
 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,marginTop:16}}><p style={{fontSize:13,fontWeight:800,color:D.t}}>🛒 Pedidos de parafarmacia</p><span style={pill(D.purpleBg,D.purple)}>{pharmacyOrders.length}</span></div>
 {pharmacyOrders.length===0?<div style={{...S.card,textAlign:"center",padding:"18px 14px",marginBottom:14}}><p style={{fontSize:11,color:D.t2}}>Aún no hay pedidos de productos de parafarmacia.</p><button style={{...S.btn("#059669"),borderRadius:9,fontSize:11,marginTop:9}} onClick={()=>go("pac-store")}>Ir a la tienda →</button></div>:pharmacyOrders.slice(0,4).map(order=><div key={order.id} style={{...S.card,marginBottom:8,border:`1px solid ${D.purple}33`}}><div style={{display:"flex",justifyContent:"space-between",gap:8}}><div><p style={{fontSize:12,fontWeight:800,color:D.t}}>Pedido · {order.items?.length||0} producto{(order.items?.length||0)!==1?"s":""}</p><p style={{fontSize:10,color:D.t2,marginTop:3}}>{order.farmacia} · €{Number(order.total||0).toFixed(2)}</p></div><span style={pill(D.purpleBg,D.purple)}>{order.estado}</span></div><p style={{fontSize:9,color:D.t3,marginTop:6}}>{order.fechaCreacion}</p></div>)}
 
+        {/* Acceso tienda */}
+        {farmacia.estado==="vinculada"&&(
+          <div onClick={()=>go("pac-tienda")} style={{...S.card,background:"linear-gradient(135deg,#065f46,#059669)",cursor:"pointer",marginBottom:14,padding:"16px 18px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:44,height:44,borderRadius:13,background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🛒</div>
+              <div style={{flex:1}}>
+                <p style={{fontSize:14,fontWeight:900,color:"#fff"}}>Tienda de material</p>
+                <p style={{fontSize:11,color:"rgba(255,255,255,.75)"}}>Pide material sanitario a {farmacia.nombre}</p>
+              </div>
+              <span style={{color:"rgba(255,255,255,.8)",fontSize:22}}>›</span>
+            </div>
+          </div>
+        )}
+
         {/* Historial de solicitudes */}
         <p style={{fontSize:13,fontWeight:800,color:D.t,marginBottom:10}}>📋 Solicitudes enviadas</p>
         {solicitudes.length===0?(
@@ -3260,6 +3315,111 @@ const submitPharmacyCart=async()=>{
               )}
             </div>
           ))
+        )}
+      </div>
+      {pacNavEl}
+    </div>
+  )}
+
+  {/* ══ PAC TIENDA FARMACIA ══ */}
+  {screen==="pac-tienda"&&(
+    <div style={S.sc}>
+      <GradG>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <button onClick={()=>go("pac-farmacia")} style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:9,padding:"7px 12px",cursor:"pointer",fontSize:13,fontWeight:700}}>←</button>
+          <div style={{flex:1}}>
+            <h2 style={{fontSize:18,fontWeight:900,color:"#fff"}}>🛒 Tienda</h2>
+            <p style={{fontSize:11,color:"rgba(255,255,255,.72)"}}>{farmacia.nombre||"Farmacia vinculada"}</p>
+          </div>
+          {carritoFarmacia.length>0&&(
+            <button onClick={()=>setShowCarrito(true)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              🛒 {carritoFarmacia.reduce((a,i)=>a+i.qty,0)}
+            </button>
+          )}
+        </div>
+      </GradG>
+      <div style={S.scr}>
+        {farmacia.estado!=="vinculada"?(
+          <div style={{...S.card,textAlign:"center",padding:"32px 16px"}}>
+            <p style={{fontSize:32,marginBottom:12}}>🏥</p>
+            <p style={{fontSize:14,fontWeight:700,color:D.t,marginBottom:6}}>Sin farmacia vinculada</p>
+            <p style={{fontSize:12,color:D.t2,marginBottom:16}}>Vincula tu farmacia habitual para ver su catálogo y hacer pedidos.</p>
+            <button onClick={()=>{go("pac-farmacia");setModal("farmacia-setup");}} style={{...S.btn("#059669"),borderRadius:12,fontSize:13}}>Vincular farmacia →</button>
+          </div>
+        ):(
+          <>
+            {/* Filtros */}
+            <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+              {CATALOGO_CATS.map(c=>(
+                <button key={c} onClick={()=>setFarmaciaStoreCat(c)} style={{flexShrink:0,padding:"6px 12px",borderRadius:20,border:`1.5px solid ${farmaciaStoreCat===c?"#059669":"rgba(5,150,105,.3)"}`,background:farmaciaStoreCat===c?"rgba(5,150,105,.12)":"transparent",color:farmaciaStoreCat===c?"#059669":"#6B7280",fontSize:11,fontWeight:farmaciaStoreCat===c?800:600,cursor:"pointer"}}>{c}</button>
+              ))}
+            </div>
+
+            {/* Catálogo */}
+            {(farmaciaStoreCat==="Todos"?CATALOGO_FARMACIA:CATALOGO_FARMACIA.filter(p=>p.cat===farmaciaStoreCat)).map((prod,i)=>{
+              const enCarrito=carritoFarmacia.find(x=>x.id===prod.id);
+              return(
+                <div key={i} style={{...S.card,marginBottom:8,border:`1px solid ${D.border}`,opacity:prod.stock===0?.6:1}}>
+                  <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <div style={{width:44,height:44,borderRadius:12,background:D.greenBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{prod.e}</div>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                        <p style={{fontSize:13,fontWeight:700,color:D.t}}>{prod.nombre}</p>
+                        {prod.receta&&<span style={{...pill(D.amberBg,D.amber),fontSize:8}}>Con receta</span>}
+                      </div>
+                      <p style={{fontSize:10,color:D.t2,marginBottom:4,lineHeight:1.4}}>{prod.desc}</p>
+                      <p style={{fontSize:9,color:D.t3,marginBottom:6}}>{prod.cat}</p>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div>
+                          <p style={{fontSize:14,fontWeight:900,color:"#059669"}}>€{prod.precio.toFixed(2)}</p>
+                          <p style={{fontSize:9,color:D.t3}}>{prod.unidad} · Stock: {prod.stock}</p>
+                        </div>
+                        {prod.receta?(
+                          <p style={{fontSize:10,color:D.t3,fontStyle:"italic"}}>Requiere receta</p>
+                        ):enCarrito?(
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <button onClick={()=>setCarritoFarmacia(prev=>prev.map(x=>x.id===prod.id?{...x,qty:Math.max(1,x.qty-1)}:x).filter(x=>x.qty>0))} style={{width:30,height:30,borderRadius:"50%",border:`1px solid ${D.border}`,background:D.inp,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                            <p style={{fontSize:13,fontWeight:800,color:D.t,minWidth:20,textAlign:"center"}}>{enCarrito.qty}</p>
+                            <button onClick={()=>setCarritoFarmacia(prev=>prev.map(x=>x.id===prod.id?{...x,qty:x.qty+1}:x))} style={{width:30,height:30,borderRadius:"50%",border:`1px solid ${D.border}`,background:D.inp,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+                          </div>
+                        ):(
+                          <button onClick={()=>setCarritoFarmacia(prev=>[...prev,{...prod,qty:1}])} disabled={prod.stock===0} style={{...S.btnSm,background:"#059669",color:"#fff",borderRadius:9,padding:"7px 14px",fontSize:11}}>
+                            {prod.stock===0?"Sin stock":"Añadir"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Carrito sticky */}
+            {carritoFarmacia.length>0&&(
+              <div style={{position:"sticky",bottom:0,background:D.card,borderTop:`1px solid ${D.border}`,padding:"12px 0",marginTop:8}}>
+                <button onClick={()=>setShowCarrito(true)} style={{...S.btn("#059669"),borderRadius:12,fontSize:13}}>
+                  🛒 Ver carrito ({carritoFarmacia.reduce((a,i)=>a+i.qty,0)} artículos) · €{carritoFarmacia.reduce((a,i)=>a+i.precio*i.qty,0).toFixed(2)}
+                </button>
+              </div>
+            )}
+
+            {/* Historial pedidos */}
+            {pharmacyOrders.length>0&&(
+              <div style={{...S.card,marginTop:8}}>
+                <p style={{fontSize:12,fontWeight:800,color:D.t,marginBottom:10}}>📦 Mis pedidos</p>
+                {pharmacyOrders.slice(0,3).map((order,i)=>(
+                  <div key={i} style={{padding:"8px 0",borderBottom:i<pharmacyOrders.length-1?`1px solid ${D.border}`:"none"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                      <p style={{fontSize:12,fontWeight:700,color:D.t}}>Pedido #{pharmacyOrders.length-i}</p>
+                      <span style={{...pill(order.estado==="Entregado"?D.greenBg:D.blueBg,order.estado==="Entregado"?"#059669":D.blue),fontSize:9}}>{order.estado}</span>
+                    </div>
+                    <p style={{fontSize:10,color:D.t2}}>{order.items.length} artículo{order.items.length!==1?"s":""} · €{order.total}</p>
+                    <p style={{fontSize:9,color:D.t3}}>{order.fecha}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
       {pacNavEl}
@@ -4161,54 +4321,80 @@ const submitPharmacyCart=async()=>{
     </div>
   )}
 
-  {/* Modal configuración farmacia */}
+  {/* Modal búsqueda y vinculación de farmacia */}
   {modal==="farmacia-setup"&&(
     <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(15,23,42,.6)",display:"flex",alignItems:"flex-end",zIndex:600}}>
-      <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"90%",overflowY:"auto"}}>
+      <div style={{background:D.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxHeight:"92%",overflowY:"auto"}}>
         <div style={{width:32,height:4,background:D.border,borderRadius:4,margin:"0 auto 14px"}}/>
-        <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:4}}>🏥 Farmacia habitual</p>
-        <p style={{fontSize:12,color:D.t2,marginBottom:16}}>Introduce los datos de tu farmacia para gestionar reposiciones de medicación.</p>
-        {[
-          ["nombre","Nombre de la farmacia","Farmacia Central...","🏥"],
-          ["direccion","Dirección","Calle, número, ciudad...","📍"],
-          ["telefono","Teléfono","612 345 678","📞"],
-          ["codigo","Código de vinculación (opcional)","Código proporcionado por la farmacia","🔑"],
-        ].map(([k,l,ph,ic])=>(
-          <div key={k}>
-            <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>{l}</p>
-            <div style={S.inp}><span>{ic}</span><input style={S.inpEl} placeholder={ph} value={farmacia[k]||""} onChange={e=>setFarmacia(f=>({...f,[k]:e.target.value}))}/></div>
+        <p style={{fontSize:15,fontWeight:900,color:D.t,marginBottom:4}}>🏥 Buscar farmacia habitual</p>
+        <p style={{fontSize:12,color:D.t2,marginBottom:14}}>Busca tu farmacia por nombre. Los datos provienen de OpenStreetMap.</p>
+
+        {/* Buscador */}
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <div style={{...S.inp,flex:1,marginBottom:0}}>
+            <span>🔍</span>
+            <input style={S.inpEl} placeholder="Nombre de la farmacia..." value={farmaciaSearchQuery} onChange={e=>setFarmaciaSearchQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&buscarFarmacias(farmaciaSearchQuery)}/>
           </div>
-        ))}
+          <button onClick={()=>buscarFarmacias(farmaciaSearchQuery)} disabled={farmaciaSearchLoading} style={{...S.btn("#059669"),borderRadius:12,padding:"0 16px",fontSize:13,flexShrink:0}}>
+            {farmaciaSearchLoading?"...":"Buscar"}
+          </button>
+        </div>
+
+        {farmaciaSearchError&&<p style={{fontSize:11,color:D.red,marginBottom:10,textAlign:"center"}}>{farmaciaSearchError}</p>}
+
+        {/* Farmacia actual */}
+        {farmacia.nombre&&farmacia.estado!=="no-vinculada"&&(
+          <div style={{...S.card,background:farmacia.estado==="vinculada"?D.greenBg:D.amberBg,border:`1px solid ${farmacia.estado==="vinculada"?"#059669":D.amber}44`,marginBottom:12}}>
+            <p style={{fontSize:11,fontWeight:800,color:farmacia.estado==="vinculada"?"#059669":D.amber,marginBottom:4}}>
+              {farmacia.estado==="vinculada"?"✓ Farmacia vinculada":"⏳ Solicitud pendiente"}
+            </p>
+            <p style={{fontSize:13,fontWeight:700,color:D.t}}>{farmacia.nombre}</p>
+            <p style={{fontSize:11,color:D.t2}}>{farmacia.direccion}</p>
+            {farmacia.telefono&&<p style={{fontSize:11,color:D.t2}}>📞 {farmacia.telefono}</p>}
+            {farmacia.participaNurseArt&&<span style={{...pill(D.greenBg,"#059669"),fontSize:10,marginTop:6,display:"inline-block"}}>✓ Participa en NurseArt</span>}
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              {farmacia.estado==="pendiente"&&(
+                <button onClick={()=>{setFarmacia(f=>({...f,estado:"vinculada"}));showToast("✓ Vinculación confirmada");setModal(null);}} style={{...S.btn("#059669"),borderRadius:10,fontSize:12,flex:1}}>Confirmar vinculación</button>
+              )}
+              <button onClick={()=>{setFarmacia({nombre:"",direccion:"",telefono:"",codigo:"",estado:"no-vinculada"});showToast("✓ Farmacia desvinculada");}} style={{...S.btnG,borderRadius:10,fontSize:12,color:D.red,borderColor:D.red,flex:1}}>Desvincular</button>
+            </div>
+          </div>
+        )}
+
+        {/* Resultados búsqueda */}
+        {farmaciaSearchResults.length>0&&(
+          <>
+            <p style={{fontSize:12,fontWeight:700,color:D.t2,marginBottom:8}}>{farmaciaSearchResults.length} farmacias encontradas</p>
+            {farmaciaSearchResults.map((f,i)=>(
+              <div key={i} style={{...S.card,marginBottom:8,border:`1.5px solid ${f.participaNurseArt?"#059669":D.border}`,cursor:"pointer"}} onClick={()=>seleccionarFarmacia(f)}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                  <div style={{width:38,height:38,borderRadius:10,background:f.participaNurseArt?D.greenBg:D.inp,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🏥</div>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                      <p style={{fontSize:13,fontWeight:700,color:D.t}}>{f.nombre}</p>
+                      {f.participaNurseArt&&<span style={{...pill(D.greenBg,"#059669"),fontSize:8}}>NurseArt</span>}
+                    </div>
+                    <p style={{fontSize:10,color:D.t2,marginBottom:2}}>{f.direccion}</p>
+                    {f.telefono&&<p style={{fontSize:10,color:D.t2}}>📞 {f.telefono}</p>}
+                    {!f.participaNurseArt&&<p style={{fontSize:9,color:D.t3,marginTop:4,fontStyle:"italic"}}>Esta farmacia aún no participa en NurseArt. Puedes invitarla.</p>}
+                  </div>
+                  <span style={{color:D.t3,fontSize:18,flexShrink:0}}>›</span>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
 
         {/* Umbral de aviso */}
-        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5}}>⏰ Avisar cuando queden (días)</p>
+        <p style={{fontSize:11,fontWeight:700,color:D.t2,marginBottom:5,marginTop:12}}>⏰ Avisar cuando queden (días)</p>
         <div style={{display:"flex",gap:8,marginBottom:16}}>
           {[3,5,7,10,14].map(d=>(
             <button key={d} onClick={()=>setUmbralDias(d)} style={{flex:1,padding:"10px 4px",borderRadius:10,border:`2px solid ${umbralDias===d?"#059669":D.border}`,background:umbralDias===d?D.greenBg:D.inp,color:umbralDias===d?"#059669":D.t2,fontSize:12,fontWeight:700,cursor:"pointer"}}>{d}d</button>
           ))}
         </div>
 
-        <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8}} onClick={()=>{
-          if(!farmacia.nombre){showToast("⚠ Indica el nombre de la farmacia");return;}
-          setFarmacia(f=>({...f,estado:"pendiente"}));
-          showToast("✓ Datos guardados — solicitud pendiente de confirmación");
-          setModal(null);
-        }}>Guardar farmacia</button>
-
-        {farmacia.estado==="pendiente"&&(
-          <button style={{...S.btn("#059669"),borderRadius:12,marginBottom:8,background:"#059669"}} onClick={()=>{
-            setFarmacia(f=>({...f,estado:"vinculada"}));
-            showToast("✓ Farmacia vinculada (simulación piloto)");
-            setModal(null);
-          }}>✓ Simular vinculación (piloto)</button>
-        )}
-        {farmacia.estado==="vinculada"&&(
-          <button style={{...S.btnG,borderRadius:12,marginBottom:8,borderColor:D.red,color:D.red}} onClick={()=>{
-            setFarmacia(f=>({...f,estado:"desvinculada"}));
-            showToast("✓ Farmacia desvinculada");setModal(null);
-          }}>Desvincular farmacia</button>
-        )}
-        <button style={{...S.btnG,borderRadius:12}} onClick={()=>setModal(null)}>Cancelar</button>
+        <p style={{fontSize:9,color:D.t3,marginBottom:14,lineHeight:1.5}}>📍 Datos de farmacias procedentes de OpenStreetMap. NurseArt no garantiza la exactitud de la información. Verifica los datos con tu farmacia.</p>
+        <button style={{...S.btnG,borderRadius:12}} onClick={()=>{setModal(null);setFarmaciaSearchResults([]);setFarmaciaSearchQuery("");}}>Cerrar</button>
       </div>
     </div>
   )}

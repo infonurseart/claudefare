@@ -239,3 +239,68 @@ export const updatePharmacyRequest = async (requestId, updates) => {
   try { await updateDoc(firestoreDoc(db, "pharmacyRequests", requestId), {...updates, updatedAt: new Date().toISOString()}); return { success: true }; }
   catch(e) { return { success: false, error: e.message }; }
 };
+
+// ── Farmacias verificadas en NurseArt ──
+import { collection as col2, query as q2, where as w2, getDocs as gd2, setDoc as sd2, doc as d2, getDoc as gDoc2 } from "firebase/firestore";
+
+export const searchVerifiedPharmacies = async (nombre) => {
+  try {
+    const snap = await gd2(q2(col2(db, "pharmacies"), w2("verified", "==", true)));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!nombre) return all;
+    return all.filter(f => f.nombre?.toLowerCase().includes(nombre.toLowerCase()));
+  } catch(e) {
+    console.log("Error buscando farmacias:", e.message);
+    return [];
+  }
+};
+
+export const registerPharmacyInNurseArt = async (uid, data) => {
+  try {
+    await sd2(d2(db, "pharmacies", uid), {
+      ...data,
+      verified: false,
+      registeredAt: new Date().toISOString()
+    });
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const getPharmacyById = async (pharmacyId) => {
+  try {
+    const snap = await gDoc2(d2(db, "pharmacies", pharmacyId));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch(e) {
+    return null;
+  }
+};
+
+export const sendPharmacyLinkRequest = async (carerUid, pharmacyId, pharmacyData) => {
+  try {
+    await sd2(d2(db, "pharmacyLinks", `${carerUid}_${pharmacyId}`), {
+      carerUid, pharmacyId,
+      pharmacyName: pharmacyData.nombre,
+      pharmacyAddress: pharmacyData.direccion,
+      status: "pending",
+      requestedAt: new Date().toISOString()
+    });
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+};
+
+export const createPharmacyOrder = async (carerUid, pharmacyId, items, total) => {
+  try {
+    const ref = await addDoc(col2(db, "pharmacyOrders"), {
+      carerUid, pharmacyId, items, total,
+      estado: "Recibido",
+      createdAt: new Date().toISOString()
+    });
+    return { success: true, id: ref.id };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+};
