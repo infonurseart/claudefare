@@ -1,8 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, addDoc, query, where, getDocs, updateDoc, doc as firestoreDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, orderBy, onSnapshot } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyALoBTuVGRozmrtiWMX9h89TCb30yDmDGg",
@@ -14,293 +12,222 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
 export const auth = getAuth(app);
-export const functions = getFunctions(app, "europe-west1");
+export const db = getFirestore(app);
 
-export const registerUser = async (email, password, role, name) => {
+export const registerUser = async (email, password, role, name, apellido) => {
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
-    const requestedRole = role === "pro" ? "profesional" : role === "farmacia" ? "farmacia" : "cuidador";
-    const accountRole = role === "pro" ? "pendiente_verificacion" : requestedRole;
-    await setDoc(doc(db, "users", cred.user.uid), { email, role: accountRole, requestedRole, verificationStatus: role === "pro" ? "pending" : "not_required", name, createdAt: new Date().toISOString() });
-    return { success: true, uid: cred.user.uid };
-  } catch(e) {
-    const msgs = {
-      "auth/email-already-in-use": "Este correo ya está registrado",
-      "auth/weak-password": "La contraseña debe tener al menos 6 caracteres",
-      "auth/invalid-email": "Correo electrónico no válido"
-    };
-    return { success: false, error: msgs[e.code] || e.message };
-  }
+    const finalRole = role === "pro" ? "pendiente_verificacion" : role;
+    await setDoc(doc(db, "users", cred.user.uid), { email, role: finalRole, name: `${name} ${apellido}`.trim(), createdAt: new Date().toISOString() });
+    await setDoc(doc(db, "userData", cred.user.uid), { email, role: finalRole, name: `${name} ${apellido}`.trim() });
+    if (role === "pro") {
+      await setDoc(doc(db, "professionalRequests", cred.user.uid), { email, name: `${name} ${apellido}`.trim(), requestedAt: new Date().toISOString(), status: "pending" });
+    }
+    return { success: true, uid: cred.user.uid, role: finalRole, name: `${name} ${apellido}`.trim(), email };
+  } catch(e) { return { success: false, error: e.message }; }
 };
 
 export const loginUser = async (email, password) => {
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    const uid = cred.user.uid;
-    const token = await cred.user.getIdTokenResult();
-    let name = cred.user.displayName || "";
-    let role = "";
-    let roleStatus = "active";
-    const userSnap = await getDoc(doc(db, "users", uid));
-    if(userSnap.exists()){
-      const d = userSnap.data();
-      name = d.name || name;
-      role = d.role || "";
-      roleStatus = d.verificationStatus || roleStatus;
-    }
-    const dataSnap = await getDoc(doc(db, "userData", uid));
-    if(dataSnap.exists()){
-      const d = dataSnap.data();
-      if(d.proProfile?.name) name = d.proProfile.name;
-      if(d.pacProfile?.name) name = d.pacProfile.name;
-      if(d.role) role = d.role;
-    }
-    role = token.claims.role || role;
-    return { success: true, uid, role, roleStatus, name, email };
-  } catch(e) {
-    const msgs = {
-      "auth/user-not-found": "No existe una cuenta con este correo",
-      "auth/wrong-password": "Contraseña incorrecta",
-      "auth/invalid-credential": "Correo o contraseña incorrectos",
-      "auth/too-many-requests": "Demasiados intentos. Espera unos minutos"
-    };
-    return { success: false, error: msgs[e.code] || "Error al iniciar sesión" };
-  }
+    const snap = await getDoc(doc(db, "users", cred.user.uid));
+    if (!snap.exists()) return { success: false, error: "Usuario no encontrado" };
+    const data = snap.data();
+    return { success: true, uid: cred.user.uid, role: data.role, name: data.name, email: data.email };
+  } catch(e) { return { success: false, error: "Email o contraseña incorrectos" }; }
 };
 
-export const logoutUser = () => signOut(auth);
-export const resetPassword = async (email) => {
-  try { await sendPasswordResetEmail(auth, email); return { success: true }; }
-  catch(e) { return { success: false, error: "No se pudo enviar el correo" }; }
-};
-export const approveProfessionalAccount = async (targetUid, professionalData = {}) => {
-  try {
-    const callable = httpsCallable(functions, "approveProfessionalAccount");
-    const result = await callable({ targetUid, professionalData });
-    return { success: true, ...(result.data || {}) };
-  } catch(e) { return { success: false, error: e.message || "No se pudo aprobar la cuenta" }; }
-};
-export const rejectProfessionalAccount = async (targetUid, reason = "No verificada") => {
-  try { const callable = httpsCallable(functions, "rejectProfessionalAccount"); const result = await callable({ targetUid, reason }); return { success: true, ...(result.data || {}) }; }
-  catch(e) { return { success: false, error: e.message || "No se pudo rechazar la cuenta" }; }
-};
-export const uploadProfessionalDocument = async (uid, file, kind) => {
-  const allowedKinds = ["colegiacion", "identidad"];
-  const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-  try {
-    if (!uid || !file) throw new Error("Falta el documento.");
-    if (!allowedKinds.includes(kind)) throw new Error("Tipo de documento no válido.");
-    if (file.size > 10 * 1024 * 1024) throw new Error("El archivo supera el máximo de 10 MB.");
-    if (!allowedTypes.includes(file.type)) throw new Error("Solo se admiten PDF, JPG, PNG o WEBP.");
-    const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const fileRef = ref(storage, `professionalDocuments/${uid}/${kind}-${Date.now()}.${ext}`);
-    await uploadBytes(fileRef, file, { contentType: file.type });
-    const url = await getDownloadURL(fileRef);
-    return {
-      success: true,
-      document: {
-        kind,
-        name: file.name.slice(0, 160),
-        size: file.size,
-        type: file.type,
-        path: fileRef.fullPath,
-        url,
-        uploadedAt: new Date().toISOString()
-      }
-    };
-  } catch (e) {
-    return { success: false, error: e.message || "No se pudo subir el documento." };
-  }
+export const logoutUser = async () => { try { await signOut(auth); } catch(e) {} };
+
+export const saveUserData = async (uid, data) => {
+  try { await setDoc(doc(db, "userData", uid), data, { merge: true }); return { success: true }; }
+  catch(e) { return { success: false, error: e.message }; }
 };
 
-export const createProfessionalRequest = async (uid, data) => {
+export const getUserData = async (uid) => {
+  try { const snap = await getDoc(doc(db, "userData", uid)); return snap.exists() ? snap.data() : null; }
+  catch(e) { return null; }
+};
+
+export const createInviteCode = async (proUid, code) => {
+  try { await setDoc(doc(db, "inviteCodes", code), { proUid, createdAt: new Date().toISOString(), used: false }); return { success: true }; }
+  catch(e) { return { success: false, error: e.message }; }
+};
+
+export const createPharmacyRequest = async (carerUid, pharmacyId, reqData) => {
   try {
-    const status = ["draft", "submitted"].includes(data?.status) ? data.status : "draft";
-    await setDoc(doc(db, "professionalRequests", uid), {
-      uid,
-      ...data,
-      status,
-      updatedAt: new Date().toISOString(),
-      requestedAt: data?.requestedAt || new Date().toISOString(),
-      ...(status === "submitted" ? { submittedAt: new Date().toISOString() } : {})
-    }, { merge: true });
+    const ref = await addDoc(collection(db, "pharmacyRequests"), {
+      carerUid, pharmacyId, ...reqData,
+      estado: "Pendiente de revisión",
+      createdAt: new Date().toISOString(),
+      historial: [{ fecha: new Date().toLocaleString("es-ES"), accion: "Solicitud creada", usuario: "Cuidador" }]
+    });
+    return { success: true, id: ref.id };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+
+export const getPharmacyRequests = async (pharmacyId) => {
+  try {
+    const snap = await getDocs(query(collection(db, "pharmacyRequests"), where("pharmacyId", "==", pharmacyId)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { return []; }
+};
+
+export const updateRequestStatus = async (reqId, estado, usuario) => {
+  try {
+    const ref = doc(db, "pharmacyRequests", reqId);
+    const snap = await getDoc(ref);
+    const data = snap.data();
+    await updateDoc(ref, {
+      estado,
+      historial: [...(data.historial || []), { fecha: new Date().toLocaleString("es-ES"), accion: `Estado: ${estado}`, usuario }]
+    });
     return { success: true };
   } catch(e) { return { success: false, error: e.message }; }
 };
-export const getProfessionalRequests = async () => {
-  try { const snap = await getDocs(collection(db, "professionalRequests")); return snap.docs.map(d => ({ id: d.id, ...d.data() })); }
-  catch(e) { return []; }
-};
+
 export const onAuthChange = (callback) => onAuthStateChanged(auth, callback);
 
-export const saveUserData = async (uid, data) => {
-  try { await setDoc(doc(db, "userData", uid), {...data, updatedAt: new Date().toISOString()}, { merge: true }); }
-  catch(e) { console.log("Error guardando perfil:", e.message); }
+export const resetPassword = async (email) => {
+  const { sendPasswordResetEmail } = await import("firebase/auth");
+  try { await sendPasswordResetEmail(auth, email); return { success: true }; }
+  catch(e) { return { success: false, error: e.message }; }
 };
+
 export const loadUserData = async (uid) => {
   try { const snap = await getDoc(doc(db, "userData", uid)); return snap.exists() ? snap.data() : null; }
   catch(e) { return null; }
 };
-export const subscribeUserData = (uid, callback) => onSnapshot(doc(db, "userData", uid), snap => { if(snap.exists()) callback(snap.data()); });
 
-// Datos clínicos separados del perfil: una ficha por paciente/cuidador.
-export const saveClinicalData = async (patientUid, data) => {
-  try {
-    await setDoc(doc(db, "patientClinical", patientUid), {
-      patientUid,
-      ...data,
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-    return { success: true };
-  } catch(e) {
-    console.log("Error guardando datos clínicos:", e.message);
-    return { success: false, error: e.message };
-  }
-};
-export const loadClinicalData = async (patientUid) => {
-  try { const snap = await getDoc(doc(db, "patientClinical", patientUid)); return snap.exists() ? snap.data() : null; }
-  catch(e) { return null; }
-};
-export const subscribeClinicalData = (patientUid, callback, onError) => onSnapshot(doc(db, "patientClinical", patientUid), snap => callback(snap.exists() ? snap.data() : null), onError);
-
-// Sube una imagen desde un data URL y devuelve una URL de descarga protegible por Storage Rules.
-export const uploadWoundPhoto = async (patientUid, woundId, dataUrl, kind = "evolucion") => {
-  try {
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    const fileRef = ref(storage, `woundPhotos/${patientUid}/${woundId}/${kind}-${Date.now()}.jpg`);
-    await uploadBytes(fileRef, blob, { contentType: blob.type || "image/jpeg" });
-    return { success: true, url: await getDownloadURL(fileRef) };
-  } catch(e) {
-    console.log("Error subiendo fotografía:", e.message);
-    return { success: false, error: e.message };
-  }
+export const subscribeUserData = (uid, callback) => {
+  return onSnapshot(doc(db, "userData", uid), snap => callback(snap.exists() ? snap.data() : null));
 };
 
-export const registerInviteCode = async (inviteCode, uid) => {
-  try { await setDoc(doc(db, "inviteCodes", inviteCode), { uid, createdAt: new Date().toISOString() }); }
-  catch(e) { console.log("Error registrando código:", e.message); }
-};
-export const linkProCarer = async (inviteCode, proUid, proName) => {
+export const registerInviteCode = async (code, carerUid) => {
   try {
-    const snap = await getDoc(doc(db, "inviteCodes", inviteCode));
-    if(!snap.exists()) return { success: false, error: "Código no válido" };
-    const carerUid = snap.data().uid;
-    await setDoc(doc(db, "links", `${proUid}_${carerUid}`), { proUid, proName, carerUid, inviteCode, linkedAt: new Date().toISOString() });
-    await setDoc(doc(db, "careTeam", carerUid, "members", proUid), { patientUid: carerUid, professionalUid: proUid, professionalName: proName, role: "profesional", status: "active", permissions: { verConstantes: true, verMedicacion: true, verHeridas: true, verFotografias: false, escribirComentarios: true, descargarFotografias: false }, linkedAt: new Date().toISOString() }, { merge: true });
-    await setDoc(doc(db, "userData", carerUid), { isLinkedToPro: true, proUid, proName }, { merge: true });
-    return { success: true, carerUid };
+    const snap = await getDoc(doc(db, "inviteCodes", code));
+    if (!snap.exists()) return { success: false, error: "Código no válido" };
+    const data = snap.data();
+    if (data.used) return { success: false, error: "Código ya usado" };
+    await updateDoc(doc(db, "inviteCodes", code), { used: true, usedBy: carerUid, usedAt: new Date().toISOString() });
+    return { success: true, proUid: data.proUid };
   } catch(e) { return { success: false, error: e.message }; }
 };
 
-// ── Equipo asistencial y permisos por paciente ──
-const careTeamCollection = (patientUid) => collection(db, "careTeam", patientUid, "members");
-export const getCareTeam = async (patientUid) => {
+export const linkProCarer = async (proUid, carerUid) => {
   try {
-    const snap = await getDocs(careTeamCollection(patientUid));
-    return snap.docs.map(d => ({ professionalUid: d.id, ...d.data() }));
-  } catch(e) { console.log("Error cargando equipo asistencial:", e.message); return []; }
-};
-export const getCareTeamMember = async (patientUid, professionalUid) => {
-  try { const snap = await getDoc(doc(db, "careTeam", patientUid, "members", professionalUid)); return snap.exists() ? { professionalUid, ...snap.data() } : null; }
-  catch(e) { return null; }
-};
-export const subscribeCareTeam = (patientUid, callback, onError) => onSnapshot(careTeamCollection(patientUid), snap => callback(snap.docs.map(d => ({ professionalUid: d.id, ...d.data() }))), onError);
-export const saveCareTeamMember = async (patientUid, professionalUid, memberData) => {
-  try {
-    await setDoc(doc(db, "careTeam", patientUid, "members", professionalUid), { patientUid, professionalUid, ...memberData, updatedAt: new Date().toISOString() }, { merge: true });
-    return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
-};
-export const revokeCareTeamMember = async (patientUid, professionalUid, reason = "Revocado por el paciente") => {
-  try {
-    await updateDoc(doc(db, "careTeam", patientUid, "members", professionalUid), { status: "revoked", revokedAt: new Date().toISOString(), revokedReason: reason });
+    await setDoc(doc(db, "careTeam", `${proUid}_${carerUid}`), { proUid, carerUid, linkedAt: new Date().toISOString(), status: "active" });
     return { success: true };
   } catch(e) { return { success: false, error: e.message }; }
 };
 
-export const createPharmacyRequest = async (requestData) => {
-  try {
-    const ref = await addDoc(collection(db, "pharmacyRequests"), {...requestData, createdAt: new Date().toISOString(), estado: "Pendiente de revisión"});
-    return { success: true, id: ref.id };
-  } catch(e) { console.log("Error creando solicitud farmacia:", e.message); return { success: false, error: e.message }; }
-};
-export const getPharmacyRequests = async (pharmacyId) => {
-  try {
-    const q = query(collection(db, "pharmacyRequests"), where("farmaciaId", "==", pharmacyId));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({id: d.id, ...d.data()}));
-  } catch(e) { console.log("Error cargando solicitudes:", e.message); return []; }
-};
-export const updatePharmacyRequest = async (requestId, updates) => {
-  try { await updateDoc(firestoreDoc(db, "pharmacyRequests", requestId), {...updates, updatedAt: new Date().toISOString()}); return { success: true }; }
+export const saveClinicalData = async (uid, section, data) => {
+  try { await setDoc(doc(db, "clinicalData", uid), { [section]: data }, { merge: true }); return { success: true }; }
   catch(e) { return { success: false, error: e.message }; }
 };
 
-// ── Farmacias verificadas en NurseArt ──
-import { collection as col2, query as q2, where as w2, getDocs as gd2, setDoc as sd2, doc as d2, getDoc as gDoc2 } from "firebase/firestore";
-
-export const searchVerifiedPharmacies = async (nombre) => {
-  try {
-    const snap = await gd2(q2(col2(db, "pharmacies"), w2("verified", "==", true)));
-    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (!nombre) return all;
-    return all.filter(f => f.nombre?.toLowerCase().includes(nombre.toLowerCase()));
-  } catch(e) {
-    console.log("Error buscando farmacias:", e.message);
-    return [];
-  }
+export const loadClinicalData = async (uid) => {
+  try { const snap = await getDoc(doc(db, "clinicalData", uid)); return snap.exists() ? snap.data() : {}; }
+  catch(e) { return {}; }
 };
 
-export const registerPharmacyInNurseArt = async (uid, data) => {
+export const subscribeClinicalData = (uid, callback) => {
+  return onSnapshot(doc(db, "clinicalData", uid), snap => callback(snap.exists() ? snap.data() : {}));
+};
+
+export const uploadWoundPhoto = async (uid, file) => {
   try {
-    await sd2(d2(db, "pharmacies", uid), {
+    const { getStorage, ref, uploadBytes, getDownloadURL } = await import("firebase/storage");
+    const storage = getStorage();
+    const storageRef = ref(storage, `wounds/${uid}/${Date.now()}_${file.name}`);
+    const snapshot = await uploadBytes(storageRef, file);
+    const url = await getDownloadURL(snapshot.ref);
+    return { success: true, url };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+
+export const getCareTeam = async (uid, role) => {
+  try {
+    const field = role === "pro" ? "proUid" : "carerUid";
+    const snap = await getDocs(query(collection(db, "careTeam"), where(field, "==", uid), where("status", "==", "active")));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { return []; }
+};
+
+export const getCareTeamMember = async (uid) => {
+  try { const snap = await getDoc(doc(db, "users", uid)); return snap.exists() ? { uid, ...snap.data() } : null; }
+  catch(e) { return null; }
+};
+
+export const subscribeCareTeam = (uid, role, callback) => {
+  const field = role === "pro" ? "proUid" : "carerUid";
+  return onSnapshot(query(collection(db, "careTeam"), where(field, "==", uid), where("status", "==", "active")), snap => {
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  });
+};
+
+export const saveCareTeamMember = async (proUid, carerUid, data) => {
+  try {
+    await setDoc(doc(db, "careTeam", `${proUid}_${carerUid}`), { proUid, carerUid, ...data, updatedAt: new Date().toISOString() }, { merge: true });
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+
+export const revokeCareTeamMember = async (proUid, carerUid) => {
+  try { await updateDoc(doc(db, "careTeam", `${proUid}_${carerUid}`), { status: "revoked", revokedAt: new Date().toISOString() }); return { success: true }; }
+  catch(e) { return { success: false, error: e.message }; }
+};
+
+export const createProfessionalRequest = async (uid, data) => {
+  try { await setDoc(doc(db, "professionalRequests", uid), { ...data, status: "pending", createdAt: new Date().toISOString() }, { merge: true }); return { success: true }; }
+  catch(e) { return { success: false, error: e.message }; }
+};
+
+export const getProfessionalRequests = async () => {
+  try {
+    const snap = await getDocs(query(collection(db, "professionalRequests"), where("status", "==", "pending")));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { return []; }
+};
+
+export const approveProfessionalAccount = async (uid) => {
+  try {
+    await updateDoc(doc(db, "professionalRequests", uid), { status: "approved", approvedAt: new Date().toISOString() });
+    await updateDoc(doc(db, "users", uid), { role: "pro" });
+    await updateDoc(doc(db, "userData", uid), { role: "pro" });
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+
+export const rejectProfessionalAccount = async (uid, reason) => {
+  try {
+    await updateDoc(doc(db, "professionalRequests", uid), { status: "rejected", rejectedAt: new Date().toISOString(), reason });
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+
+export const uploadProfessionalDocument = async (uid, file) => {
+  try {
+    const { getStorage, ref, uploadBytes, getDownloadURL } = await import("firebase/storage");
+    const storage = getStorage();
+    const storageRef = ref(storage, `professional_docs/${uid}/${Date.now()}_${file.name}`);
+    const snapshot = await uploadBytes(storageRef, file);
+    const url = await getDownloadURL(snapshot.ref);
+    await setDoc(doc(db, "professionalRequests", uid), { documentUrl: url, documentUploadedAt: new Date().toISOString() }, { merge: true });
+    return { success: true, url };
+  } catch(e) { return { success: false, error: e.message }; }
+};
+
+export const updatePharmacyRequest = async (reqId, data) => {
+  try {
+    const ref = doc(db, "pharmacyRequests", reqId);
+    const snap = await getDoc(ref);
+    const existing = snap.data() || {};
+    await updateDoc(ref, {
       ...data,
-      verified: false,
-      registeredAt: new Date().toISOString()
+      historial: [...(existing.historial || []), { fecha: new Date().toLocaleString("es-ES"), accion: data.estado || "Actualizado", usuario: data.usuario || "Sistema" }]
     });
     return { success: true };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-};
-
-export const getPharmacyById = async (pharmacyId) => {
-  try {
-    const snap = await gDoc2(d2(db, "pharmacies", pharmacyId));
-    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-  } catch(e) {
-    return null;
-  }
-};
-
-export const sendPharmacyLinkRequest = async (carerUid, pharmacyId, pharmacyData) => {
-  try {
-    await sd2(d2(db, "pharmacyLinks", `${carerUid}_${pharmacyId}`), {
-      carerUid, pharmacyId,
-      pharmacyName: pharmacyData.nombre,
-      pharmacyAddress: pharmacyData.direccion,
-      status: "pending",
-      requestedAt: new Date().toISOString()
-    });
-    return { success: true };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-};
-
-export const createPharmacyOrder = async (carerUid, pharmacyId, items, total) => {
-  try {
-    const ref = await addDoc(col2(db, "pharmacyOrders"), {
-      carerUid, pharmacyId, items, total,
-      estado: "Recibido",
-      createdAt: new Date().toISOString()
-    });
-    return { success: true, id: ref.id };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
+  } catch(e) { return { success: false, error: e.message }; }
 };

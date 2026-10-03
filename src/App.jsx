@@ -608,19 +608,57 @@ const submitPharmacyCart=async()=>{
     "Si hace falta": null, // PRN — sin cálculo automático
   };
 
-  // ── Buscar farmacias reales (OpenStreetMap via Cloudflare Worker) ──
+  // ── Buscar farmacias reales (OpenStreetMap Overpass API) ──
+  // Intenta: 1) Cloudflare Worker (producción), 2) Overpass directo (dev/local)
   const buscarFarmacias = async (query) => {
     if(!query || query.trim().length < 2) return;
     setFarmaciaSearchLoading(true);
     setFarmaciaSearchError("");
+    const q = query.trim();
+
+    const parsearOverpass = (data) => (data.elements || []).filter(el=>el.tags?.name).map(el=>({
+      id: `osm_${el.id}`,
+      nombre: el.tags.name,
+      direccion: [el.tags['addr:street'],el.tags['addr:housenumber'],el.tags['addr:city']||el.tags['addr:town'],el.tags['addr:postcode']].filter(Boolean).join(', ')||'Sin dirección registrada',
+      cp: el.tags['addr:postcode']||'',
+      ciudad: el.tags['addr:city']||el.tags['addr:town']||'',
+      telefono: el.tags.phone||el.tags['contact:phone']||'',
+      web: el.tags.website||el.tags['contact:website']||'',
+      lat: el.lat||el.center?.lat,
+      lon: el.lon||el.center?.lon,
+      fuente:'openstreetmap',
+      participaNurseArt:false,
+    }));
+
+    const overpassQuery = `[out:json][timeout:20];(node["amenity"="pharmacy"]["name"~"${q}",i];way["amenity"="pharmacy"]["name"~"${q}",i];relation["amenity"="pharmacy"]["name"~"${q}",i];);out body 20;`;
+
+    // 1) Intentar via Cloudflare Worker (en producción)
     try {
-      const res = await fetch(`/functions/buscar-farmacia?q=${encodeURIComponent(query.trim())}`);
+      const res = await fetch(`/functions/buscar-farmacia?q=${encodeURIComponent(q)}`);
+      if(res.ok) {
+        const data = await res.json();
+        const farmacias = data.farmacias || [];
+        setFarmaciaSearchResults(farmacias);
+        if(farmacias.length===0) setFarmaciaSearchError("No se encontraron farmacias con ese nombre");
+        setFarmaciaSearchLoading(false);
+        return;
+      }
+    } catch(_) { /* no está en Cloudflare, intentar directo */ }
+
+    // 2) Llamada directa a Overpass API (funciona en local y en producción como fallback)
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:`data=${encodeURIComponent(overpassQuery)}`,
+      });
+      if(!res.ok) throw new Error(`Overpass error ${res.status}`);
       const data = await res.json();
-      if(data.error) throw new Error(data.error);
-      setFarmaciaSearchResults(data.farmacias || []);
-      if((data.farmacias||[]).length === 0) setFarmaciaSearchError("No se encontraron farmacias con ese nombre");
+      const farmacias = parsearOverpass(data);
+      setFarmaciaSearchResults(farmacias);
+      if(farmacias.length===0) setFarmaciaSearchError("No se encontraron farmacias con ese nombre. Intenta con otro nombre o ciudad.");
     } catch(e) {
-      setFarmaciaSearchError("Error al buscar farmacias — comprueba tu conexión");
+      setFarmaciaSearchError("No se pudo conectar con el buscador de farmacias. Comprueba tu conexión a Internet.");
       setFarmaciaSearchResults([]);
     }
     setFarmaciaSearchLoading(false);
@@ -4330,13 +4368,16 @@ const submitPharmacyCart=async()=>{
         <p style={{fontSize:12,color:D.t2,marginBottom:14}}>Busca tu farmacia por nombre. Los datos provienen de OpenStreetMap.</p>
 
         {/* Buscador */}
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          <div style={{...S.inp,flex:1,marginBottom:0}}>
+        <div style={{marginBottom:12}}>
+          <div style={{...S.inp,marginBottom:8}}>
             <span>🔍</span>
-            <input style={S.inpEl} placeholder="Nombre de la farmacia..." value={farmaciaSearchQuery} onChange={e=>setFarmaciaSearchQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&buscarFarmacias(farmaciaSearchQuery)}/>
+            <input style={S.inpEl} placeholder="Nombre de la farmacia..." value={farmaciaSearchQuery}
+              onChange={e=>setFarmaciaSearchQuery(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&buscarFarmacias(farmaciaSearchQuery)}/>
           </div>
-          <button onClick={()=>buscarFarmacias(farmaciaSearchQuery)} disabled={farmaciaSearchLoading} style={{...S.btn("#059669"),borderRadius:12,padding:"0 16px",fontSize:13,flexShrink:0}}>
-            {farmaciaSearchLoading?"...":"Buscar"}
+          <button onClick={()=>buscarFarmacias(farmaciaSearchQuery)} disabled={farmaciaSearchLoading}
+            style={{...S.btn("#059669"),borderRadius:12,width:"100%",fontSize:13}}>
+            {farmaciaSearchLoading?"🔍 Buscando...":"🔍 Buscar farmacia"}
           </button>
         </div>
 
