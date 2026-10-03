@@ -608,59 +608,55 @@ const submitPharmacyCart=async()=>{
     "Si hace falta": null, // PRN — sin cálculo automático
   };
 
-  // ── Buscar farmacias reales (OpenStreetMap Overpass API) ──
-  // Intenta: 1) Cloudflare Worker (producción), 2) Overpass directo (dev/local)
+  // ── Buscar farmacias reales (OpenStreetMap) ──
+  // Estrategia: 1) Cloudflare Worker (producción sin CORS)
+  //             2) overpass-api.de directo (tiene CORS abierto en navegador)
+  //             3) overpass.openstreetmap.ru (mirror alternativo)
   const buscarFarmacias = async (query) => {
     if(!query || query.trim().length < 2) return;
     setFarmaciaSearchLoading(true);
     setFarmaciaSearchError("");
     const q = query.trim();
 
-    const parsearOverpass = (data) => (data.elements || []).filter(el=>el.tags?.name).map(el=>({
-      id: `osm_${el.id}`,
-      nombre: el.tags.name,
-      direccion: [el.tags['addr:street'],el.tags['addr:housenumber'],el.tags['addr:city']||el.tags['addr:town'],el.tags['addr:postcode']].filter(Boolean).join(', ')||'Sin dirección registrada',
-      cp: el.tags['addr:postcode']||'',
-      ciudad: el.tags['addr:city']||el.tags['addr:town']||'',
-      telefono: el.tags.phone||el.tags['contact:phone']||'',
-      web: el.tags.website||el.tags['contact:website']||'',
-      lat: el.lat||el.center?.lat,
-      lon: el.lon||el.center?.lon,
+    const parsearOverpass = (data) => (data.elements||[]).filter(el=>el.tags?.name).map(el=>({
+      id:`osm_${el.id}`,
+      nombre:el.tags.name,
+      direccion:[el.tags['addr:street'],el.tags['addr:housenumber'],el.tags['addr:city']||el.tags['addr:town'],el.tags['addr:postcode']].filter(Boolean).join(', ')||'Sin dirección registrada',
+      cp:el.tags['addr:postcode']||'',
+      ciudad:el.tags['addr:city']||el.tags['addr:town']||el.tags['addr:municipality']||'',
+      telefono:el.tags.phone||el.tags['contact:phone']||'',
+      web:el.tags.website||el.tags['contact:website']||'',
+      lat:el.lat||el.center?.lat,
+      lon:el.lon||el.center?.lon,
       fuente:'openstreetmap',
       participaNurseArt:false,
     }));
 
-    const overpassQuery = `[out:json][timeout:20];(node["amenity"="pharmacy"]["name"~"${q}",i];way["amenity"="pharmacy"]["name"~"${q}",i];relation["amenity"="pharmacy"]["name"~"${q}",i];);out body 20;`;
+    // Busca por nombre en todo España (country=ES) con timeout generoso
+    const oql = `[out:json][timeout:25];area["ISO3166-1"="ES"][admin_level=2]->.country;(node["amenity"="pharmacy"]["name"~"${q}",i](area.country);way["amenity"="pharmacy"]["name"~"${q}",i](area.country););out body 25;`;
 
-    // 1) Intentar via Cloudflare Worker (en producción)
+    // 1) Cloudflare Worker (producción — server-side, sin CORS)
     try {
-      const res = await fetch(`/functions/buscar-farmacia?q=${encodeURIComponent(q)}`);
-      if(res.ok) {
-        const data = await res.json();
-        const farmacias = data.farmacias || [];
-        setFarmaciaSearchResults(farmacias);
-        if(farmacias.length===0) setFarmaciaSearchError("No se encontraron farmacias con ese nombre");
-        setFarmaciaSearchLoading(false);
-        return;
-      }
-    } catch(_) { /* no está en Cloudflare, intentar directo */ }
+      const res = await fetch(`/functions/buscar-farmacia?q=${encodeURIComponent(q)}`,{signal:AbortSignal.timeout(8000)});
+      if(res.ok){const data=await res.json();const farmacias=data.farmacias||[];setFarmaciaSearchResults(farmacias);if(farmacias.length===0)setFarmaciaSearchError("No se encontraron farmacias con ese nombre");setFarmaciaSearchLoading(false);return;}
+    } catch(_){}
 
-    // 2) Llamada directa a Overpass API (funciona en local y en producción como fallback)
+    // 2) Overpass-api.de (GET con query en URL — evita preflight CORS)
     try {
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method:'POST',
-        headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:`data=${encodeURIComponent(overpassQuery)}`,
-      });
-      if(!res.ok) throw new Error(`Overpass error ${res.status}`);
-      const data = await res.json();
-      const farmacias = parsearOverpass(data);
-      setFarmaciaSearchResults(farmacias);
-      if(farmacias.length===0) setFarmaciaSearchError("No se encontraron farmacias con ese nombre. Intenta con otro nombre o ciudad.");
-    } catch(e) {
-      setFarmaciaSearchError("No se pudo conectar con el buscador de farmacias. Comprueba tu conexión a Internet.");
-      setFarmaciaSearchResults([]);
-    }
+      const url=`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(oql)}`;
+      const res=await fetch(url,{signal:AbortSignal.timeout(30000)});
+      if(res.ok){const data=await res.json();const farmacias=parsearOverpass(data);setFarmaciaSearchResults(farmacias);if(farmacias.length===0)setFarmaciaSearchError("No se encontraron farmacias con ese nombre. Prueba con el nombre exacto o añade la ciudad (ej: \"Farmacia Sol Madrid\").");setFarmaciaSearchLoading(false);return;}
+    } catch(_){}
+
+    // 3) Mirror alternativo overpass.kumi.systems
+    try {
+      const url=`https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(oql)}`;
+      const res=await fetch(url,{signal:AbortSignal.timeout(30000)});
+      if(res.ok){const data=await res.json();const farmacias=parsearOverpass(data);setFarmaciaSearchResults(farmacias);if(farmacias.length===0)setFarmaciaSearchError("No se encontraron farmacias. Prueba con otro nombre.");setFarmaciaSearchLoading(false);return;}
+    } catch(_){}
+
+    setFarmaciaSearchError("No se pudo conectar con el buscador. Comprueba tu conexión a Internet e inténtalo de nuevo.");
+    setFarmaciaSearchResults([]);
     setFarmaciaSearchLoading(false);
   };
 
