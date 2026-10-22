@@ -122,8 +122,12 @@ export const linkProCarer = async (proUid, carerUid) => {
   } catch(e) { return { success: false, error: e.message }; }
 };
 
-export const saveClinicalData = async (uid, section, data) => {
-  try { await setDoc(doc(db, "clinicalData", uid), { [section]: data }, { merge: true }); return { success: true }; }
+export const saveClinicalData = async (uid, sectionOrData, data) => {
+  try {
+    const payload = data === undefined ? sectionOrData : { [sectionOrData]: data };
+    await setDoc(doc(db, "clinicalData", uid), payload, { merge: true });
+    return { success: true };
+  }
   catch(e) { return { success: false, error: e.message }; }
 };
 
@@ -136,12 +140,29 @@ export const subscribeClinicalData = (uid, callback) => {
   return onSnapshot(doc(db, "clinicalData", uid), snap => callback(snap.exists() ? snap.data() : {}));
 };
 
-export const uploadWoundPhoto = async (uid, file) => {
+export const uploadWoundPhoto = async (uid, woundId, dataUrl, phase = "inicial") => {
   try {
     const { getStorage, ref, uploadBytes, getDownloadURL } = await import("firebase/storage");
+    if (!dataUrl) return { success: false, error: "No se ha proporcionado ninguna imagen" };
+    let blob;
+    let extension = "jpg";
+    if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+      const [header, encoded] = dataUrl.split(",");
+      const mime = header.match(/data:([^;]+)/)?.[1] || "image/jpeg";
+      extension = mime.split("/")[1] || "jpg";
+      const binary = atob(encoded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      blob = new Blob([bytes], { type: mime });
+    } else if (dataUrl instanceof Blob) {
+      blob = dataUrl;
+    } else {
+      return { success: false, error: "Formato de imagen no compatible" };
+    }
     const storage = getStorage();
-    const storageRef = ref(storage, `wounds/${uid}/${Date.now()}_${file.name}`);
-    const snapshot = await uploadBytes(storageRef, file);
+    const safeWoundId = String(woundId || "sin-id").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const storageRef = ref(storage, `wounds/${uid}/${safeWoundId}/${phase}_${Date.now()}.${extension}`);
+    const snapshot = await uploadBytes(storageRef, blob, { contentType: blob.type || "image/jpeg" });
     const url = await getDownloadURL(snapshot.ref);
     return { success: true, url };
   } catch(e) { return { success: false, error: e.message }; }
