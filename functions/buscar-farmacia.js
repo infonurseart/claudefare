@@ -1,5 +1,5 @@
-// Cloudflare Pages Function — buscar-farmacia
-// Llama a Overpass API server-side (sin restricciones CORS)
+// Cloudflare Pages Function — /api/buscar-farmacia
+// Busca farmacias en OpenStreetMap con múltiples mirrors de fallback
 export async function onRequest(context) {
   const url = new URL(context.request.url);
   const query = (url.searchParams.get('q') || '').trim();
@@ -10,61 +10,64 @@ export async function onRequest(context) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, max-age=300', // cache 5 min
+    'Cache-Control': 'public, max-age=300',
   };
 
   if (context.request.method === 'OPTIONS') {
     return new Response('', { status: 200, headers });
   }
 
-  try {
-    let oql;
-    if (query) {
-      // Búsqueda por nombre en toda España
-      oql = `[out:json][timeout:25];area["ISO3166-1"="ES"][admin_level=2]->.c;(node["amenity"="pharmacy"]["name"~"${query}",i](area.c);way["amenity"="pharmacy"]["name"~"${query}",i](area.c););out body 25;`;
-    } else {
-      // Búsqueda por proximidad
-      oql = `[out:json][timeout:25];(node["amenity"="pharmacy"]["name"](around:${radio},${lat},${lon});way["amenity"="pharmacy"]["name"](around:${radio},${lat},${lon}););out body 20;`;
-    }
+  // Query simple sin filtro de país — más rápida y compatible con todos los mirrors
+  const oql = query
+    ? `[out:json][timeout:20];(node["amenity"="pharmacy"]["name"~"${query}",i];way["amenity"="pharmacy"]["name"~"${query}",i];);out body 30;`
+    : `[out:json][timeout:20];(node["amenity"="pharmacy"]["name"](around:${radio},${lat},${lon});way["amenity"="pharmacy"]["name"](around:${radio},${lat},${lon}););out body 20;`;
 
-    // GET request — más simple y sin preflight
-    const apiUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(oql)}`;
-    const resp = await fetch(apiUrl, {
-      headers: { 'User-Agent': 'NurseArt/1.0 (health app)' },
-    });
+  const encoded = encodeURIComponent(oql);
 
-    if (!resp.ok) throw new Error(`Overpass ${resp.status}`);
-    const data = await resp.json();
+  // Mirrors en orden — el Worker los prueba todos hasta que uno responde
+  const mirrors = [
+    `https://overpass-api.de/api/interpreter?data=${encoded}`,
+    `https://overpass.kumi.systems/api/interpreter?data=${encoded}`,
+    `https://maps.mail.ru/osm/tools/overpass/api/interpreter?data=${encoded}`,
+    `https://overpass.openstreetmap.ru/api/interpreter?data=${encoded}`,
+  ];
 
-    const farmacias = (data.elements || [])
-      .filter(el => el.tags?.name)
-      .map(el => ({
-        id: `osm_${el.id}`,
-        nombre: el.tags.name,
-        direccion: [
-          el.tags['addr:street'],
-          el.tags['addr:housenumber'],
-          el.tags['addr:city'] || el.tags['addr:town'] || el.tags['addr:municipality'],
-          el.tags['addr:postcode'],
-        ].filter(Boolean).join(', ') || 'Sin dirección registrada',
-        cp:       el.tags['addr:postcode'] || '',
-        ciudad:   el.tags['addr:city'] || el.tags['addr:town'] || el.tags['addr:municipality'] || '',
-        telefono: el.tags.phone || el.tags['contact:phone'] || '',
-        web:      el.tags.website || el.tags['contact:website'] || '',
-        lat: el.lat ?? el.center?.lat,
-        lon: el.lon ?? el.center?.lon,
-        fuente: 'openstreetmap',
-        participaNurseArt: false,
-      }));
+  const parsear = (data) => (data.elements || [])
+    .filter(el => el.tags?.name)
+    .map(el => ({
+      id:       `osm_${el.id}`,
+      nombre:   el.tags.name,
+      direccion:[el.tags['addr:street'], el.tags['addr:housenumber'],
+                 el.tags['addr:city'] || el.tags['addr:town'],
+                 el.tags['addr:postcode']].filter(Boolean).join(', ') || 'Sin dirección registrada',
+      cp:       el.tags['addr:postcode'] || '',
+      ciudad:   el.tags['addr:city'] || el.tags['addr:town'] || el.tags['addr:municipality'] || '',
+      telefono: el.tags.phone || el.tags['contact:phone'] || '',
+      web:      el.tags.website || el.tags['contact:website'] || '',
+      lat:      el.lat ?? el.center?.lat,
+      lon:      el.lon ?? el.center?.lon,
+      fuente:   'openstreetmap',
+      participaNurseArt: false,
+    }));
 
-    return new Response(
-      JSON.stringify({ farmacias, total: farmacias.length, fuente: 'OpenStreetMap' }),
-      { headers }
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ farmacias: [], total: 0, error: err.message }),
-      { status: 200, headers }
-    );
+  for (const mirrorUrl of mirrors) {
+    try {
+      const resp = await fetch(mirrorUrl, {
+        headers: { 'User-Agent': 'NurseArt/1.0 (health app; contact@nurseart.es)' },
+        signal: AbortSignal.timeout(18000),
+      });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const farmacias = parsear(data);
+      return new Response(
+        JSON.stringify({ farmacias, total: farmacias.length, fuente: 'OpenStreetMap' }),
+        { headers }
+      );
+    } catch (_) { continue; }
   }
+
+  return new Response(
+    JSON.stringify({ farmacias: [], total: 0, error: 'Todos los servidores de búsqueda no disponibles. Inténtalo en unos minutos.' }),
+    { status: 200, headers }
+  );
 }
