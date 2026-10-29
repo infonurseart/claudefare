@@ -573,7 +573,7 @@ const submitPharmacyCart=async()=>{
     if(query.trim().length<2){setMedSearchResults([]);setMedSearchSource(null);return;}
     setMedSearchLoading(true);
     try{
-      const res=await fetch(`/functions/buscar-medicamento?q=${encodeURIComponent(query)}`);
+      const res=await fetch(`/api/buscar-medicamento?q=${encodeURIComponent(query)}`);
       const data=await res.json();
       if(data.error){throw new Error(data.error);}
       const meds=(data.medicamentos||[]).map(m=>({...m,icon:FORMA_ICON[m.presentacion?.toLowerCase().includes("jarabe")?"jarabe":m.presentacion?.toLowerCase().includes("inyect")?"inyectable":"comprimido"]||"💊"}));
@@ -635,7 +635,7 @@ const submitPharmacyCart=async()=>{
     const oql = `[out:json][timeout:20];(node["amenity"="pharmacy"]["name"~"${q}",i];way["amenity"="pharmacy"]["name"~"${q}",i];);out body 30;`;
     const encoded = encodeURIComponent(oql);
     const mirrors = [
-      `/functions/buscar-farmacia?q=${encodeURIComponent(q)}`,  // Cloudflare Worker (producción)
+      `/api/buscar-farmacia?q=${encodeURIComponent(q)}`,  // Cloudflare Worker (producción)
       `https://overpass-api.de/api/interpreter?data=${encoded}`,
       `https://overpass.kumi.systems/api/interpreter?data=${encoded}`,
       `https://maps.mail.ru/osm/tools/overpass/api/interpreter?data=${encoded}`,
@@ -793,7 +793,7 @@ const submitPharmacyCart=async()=>{
     console.log(`Código leído: ${codigo} → CN extraído: ${cn}`);
     try{
       // Intentar primero con el CN extraído
-      let res = await fetch(`/functions/buscar-medicamento?cn=${encodeURIComponent(cn)}`);
+      let res = await fetch(`/api/buscar-medicamento?cn=${encodeURIComponent(cn)}`);
       let data = res.ok ? await res.json() : {medicamentos:[]};
 
       // Si no encuentra, intentar con el código completo
